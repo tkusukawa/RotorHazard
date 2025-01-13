@@ -71,11 +71,17 @@ def format_phonetic_time_to_str(millis, timeformat='{m} {s}.{d}'):
     if not timeformat:
         timeformat = '{m} {s}.{d}'
 
+    match = re.search(r"(.*)\((.*){m}(.*)\)(.*)", timeformat) # Process '({m} minutes) {s}.{d}' to include 'minutes' only if {m} is not 0.
+
     if minutes <= 0:
+        if match:
+            timeformat = match.group(1)+match.group(4)
+        timeformat
         return timeformat.format(m='', s=str(seconds), d=str(tenths))
     else:
-        return timeformat.format(m=str(minutes)+'分', s=str(seconds), d=str(tenths))
-
+        if match:
+            timeformat = match.group(1)+match.group(2)+'{m}'+match.group(3)+match.group(4)
+        return timeformat.format(m=str(minutes), s=str(seconds), d=str(tenths))
 
 # Previous (now deprecated) versions of time-formatting functions:
 
