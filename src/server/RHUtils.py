@@ -74,7 +74,7 @@ def format_phonetic_time_to_str(millis, timeformat='{m} {s}.{d}'):
     if minutes <= 0:
         return timeformat.format(m='', s=str(seconds), d=str(tenths))
     else:
-        return timeformat.format(m=str(minutes), s=str(seconds).zfill(2), d=str(tenths))
+        return timeformat.format(m=str(minutes)+'分', s=str(seconds), d=str(tenths))
 
 
 # Previous (now deprecated) versions of time-formatting functions:
