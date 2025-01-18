@@ -1,5 +1,5 @@
 '''RotorHazard server script'''
-RELEASE_VERSION = "4.3.0-dev.1" # Public release version code
+RELEASE_VERSION = "4.3.0-dev.2" # Public release version code
 SERVER_API = 45 # Server API version
 NODE_API_SUPPORTED = 18 # Minimum supported node version
 NODE_API_BEST = 35 # Most recent node API
@@ -15,6 +15,7 @@ CMDARG_JUMP_TO_BL_STR = '--jumptobl'     # send jump-to-bootloader command to no
 CMDARG_FLASH_BPILL_STR = '--flashbpill'  # flash firmware onto S32_BPill processor
 CMDARG_VIEW_DB_STR = '--viewdb'          # load and view given database file
 CMDARG_LAUNCH_B_STR = '--launchb'        # launch browser on local computer
+CMDARG_DATA_DIR = '--data'               # use given dir as data location
 
 # This must be the first import for the time being. It is
 # necessary to set up logging *before* anything else
@@ -65,10 +66,46 @@ import werkzeug
 from flask import Flask, send_from_directory, request, Response, templating, redirect, abort, copy_current_request_context
 from flask_socketio import SocketIO, emit
 
-BASEDIR = os.getcwd()
+PROGRAM_DIR = os.path.dirname(os.path.realpath(sys.argv[0]))
+
+# determine data location, with priority to:
+# 1 --data command-line arg
+# 2 datapath.ini
+# 3 current working dir
+if __name__ == '__main__' and len(sys.argv) > 1 and CMDARG_DATA_DIR in sys.argv:
+    data_dir_arg_idx = sys.argv.index(CMDARG_DATA_DIR) + 1
+    if data_dir_arg_idx < len(sys.argv):
+        if os.path.exists(sys.argv[data_dir_arg_idx]):
+            os.chdir(sys.argv[data_dir_arg_idx])
+        else:
+            print("Unable to find given data location: {0}".format(sys.argv[data_dir_arg_idx]))
+            sys.exit(1)
+    else:
+        print("Usage: python server.py --data {0}".format(CMDARG_DATA_DIR))
+        sys.exit(1)
+else:
+    try:
+        with open(PROGRAM_DIR + '/datapath.ini', 'r') as f:
+            data_path = f.readline().strip()
+            if os.path.exists(data_path):
+                os.chdir(data_path)
+            else:
+                print("datapath.ini points to an invalid system location.")
+                sys.exit(1)
+    except IOError:
+        # missing file is valid
+        pass
+    except Exception as ex:
+        print("datapath.ini is invalid; error is: " + str(ex))
+        sys.exit(1)
+
+DATA_DIR = os.getcwd()
+
 DB_FILE_NAME = 'database.db'
 DB_BKP_DIR_NAME = 'db_bkp'
-_DB_URI = 'sqlite:///' + os.path.join(BASEDIR, DB_FILE_NAME)
+_DB_URI = 'sqlite:///' + os.path.join(DATA_DIR, DB_FILE_NAME)
+
+sys.path.append(PROGRAM_DIR + '/util')
 
 APP = Flask(__name__, static_url_path='/static')
 APP.app_context().push()
@@ -110,7 +147,7 @@ from filtermanager import Flt, FilterManager
 # LED imports
 from led_event_manager import LEDEventManager, NoLEDManager, ClusterLEDManager, LEDEvent, Color, ColorVal, ColorPattern
 
-sys.path.append('../interface')
+sys.path.append(PROGRAM_DIR + '/../interface')
 sys.path.append('/home/pi/RotorHazard/src/interface')  # Needed to run on startup
 
 from Plugins import search_modules  #pylint: disable=import-error
@@ -130,6 +167,8 @@ RaceContext.serverstate.program_start_epoch_time = _program_start_epoch_time
 RaceContext.serverstate.program_start_mtonic = _program_start_mtonic
 RaceContext.serverstate.mtonic_to_epoch_millis_offset = RaceContext.serverstate.program_start_epoch_time - \
                                                         1000.0*RaceContext.serverstate.program_start_mtonic
+RaceContext.serverstate.data_dir = DATA_DIR
+RaceContext.serverstate.program_dir = PROGRAM_DIR
 
 Events = EventManager(RaceContext)
 RaceContext.events = Events
@@ -183,7 +222,7 @@ if __name__ == '__main__' and len(sys.argv) > 1:
                 flashPillSrcStr = None                       #  unless arg is switch param
             flashPillSuccessFlag = stm32loader.flash_file_to_stm32(flashPillPortStr, flashPillSrcStr)
             sys.exit(0 if flashPillSuccessFlag else 1)
-        elif CMDARG_LAUNCH_B_STR not in sys.argv:
+        elif CMDARG_LAUNCH_B_STR not in sys.argv and CMDARG_DATA_DIR not in sys.argv:
             print("Unrecognized command-line argument(s): {0}".format(sys.argv[1:]))
             sys.exit(1)
 
@@ -278,8 +317,8 @@ def getDefNodeFwUpdateUrl():
             retStr = stm32loader.DEF_BINSRC_STR      # use current "dev" firmware at URL
         else:
             # return path that is up two levels from BASEDIR, and then NODE_FW_PATHNAME
-            retStr = os.path.abspath(os.path.join(os.path.join(os.path.join(BASEDIR, os.pardir), \
-                                                             os.pardir), NODE_FW_PATHNAME))
+            retStr = os.path.abspath(os.path.join(os.path.join(os.path.join(PROGRAM_DIR, os.pardir), \
+                                                               os.pardir), NODE_FW_PATHNAME))
         # check if file with better-matching processor type (i.e., STM32F4) is available
         try:
             curTypStr = RaceContext.interface.nodes[0].firmware_proctype_str if len(RaceContext.interface.nodes) else None
@@ -323,12 +362,26 @@ def check_log_error_alert():
 # Authentication
 #
 
-def check_auth(username, password):
+def check_auth(auth):
     '''Check if a username password combination is valid.'''
-    if username == RaceContext.serverconfig.get_item('SECRETS', 'ADMIN_USERNAME') and password == RaceContext.serverconfig.get_item('SECRETS', 'ADMIN_PASSWORD'):
-        global Auth_succeeded_flag
+    global Auth_succeeded_flag
+    # allow open access if both ADMIN fields set to empty string:
+    if not RaceContext.serverconfig.get_item('SECRETS', 'ADMIN_USERNAME') and \
+        not RaceContext.serverconfig.get_item('SECRETS', 'ADMIN_PASSWORD'):
         Auth_succeeded_flag = True
         return True
+
+    # allow open access if no config has been set:
+    if RaceContext.serverconfig.config_file_status == 0:
+        Auth_succeeded_flag = True
+        return True
+
+    # allow access if user/password match
+    if auth and auth.username and auth.password:
+        if (auth.username == RaceContext.serverconfig.get_item('SECRETS', 'ADMIN_USERNAME') and \
+                auth.password == RaceContext.serverconfig.get_item('SECRETS', 'ADMIN_PASSWORD')):
+            Auth_succeeded_flag = True
+            return True
     return False
 
 def authenticate():
@@ -339,22 +392,12 @@ def authenticate():
         {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
 def requires_auth(f):
-    if RaceContext.serverconfig.get_item('SECRETS', 'ADMIN_USERNAME') or \
-        RaceContext.serverconfig.get_item('SECRETS', 'ADMIN_PASSWORD'):
-        @functools.wraps(f)
-        def decorated_auth(*args, **kwargs):
-            auth = request.authorization
-            if not auth or not check_auth(auth.username, auth.password):
-                return authenticate()
-            return f(*args, **kwargs)
-        return decorated_auth
-    # allow open access if both ADMIN fields set to empty string:
     @functools.wraps(f)
-    def decorated_noauth(*args, **kwargs):
-        global Auth_succeeded_flag
-        Auth_succeeded_flag = True
+    def decorated_auth(*args, **kwargs):
+        if not check_auth(request.authorization):
+            return authenticate()
         return f(*args, **kwargs)
-    return decorated_noauth
+    return decorated_auth
 
 # Flask template render with exception catch, so exception
 # details are sent to the log file (instead of 'stderr').
@@ -379,8 +422,18 @@ def shutdown_session(exception=None):
 @APP.route('/')
 def render_index():
     '''Route to home page.'''
+    if RaceContext.serverconfig.config_file_status == 0:
+        return redirect("/first-run", code=302)
+
     return render_template('home.html', serverInfo=RaceContext.serverstate.template_info_dict,
                            getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__, Debug=RaceContext.serverconfig.get_item('GENERAL', 'DEBUG'))
+
+@APP.route('/first-run')
+@requires_auth
+def render_welcome():
+    '''Route to first-run (admin) setup.'''
+    RaceContext.serverconfig.config_file_status = 1
+    return render_template('first-run.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__)
 
 @APP.route('/event')
 def render_event():
@@ -1388,22 +1441,34 @@ def on_backup_database(*args):
     '''Backup database.'''
     bkp_name = RaceContext.rhdata.backup_db_file(True)  # make copy of DB file
 
+    download_database(bkp_name)
+
+    Events.trigger(Evt.DATABASE_BACKUP, {
+        'file_name': os.path.basename(bkp_name),
+        })
+
+    on_list_backups()
+
+@SOCKET_IO.on('download_database')
+@catchLogExcWithDBWrapper
+def on_download_database(data):
+    '''Download selected event database file.'''
+    if data and data['event_file']:
+        db_file = data['event_file']
+        download_database(db_file)
+
+def download_database(db_file):
     # read DB data and convert to Base64
-    with open(bkp_name, mode='rb') as file_obj:
+    with open(DB_BKP_DIR_NAME + '/' + db_file, mode='rb') as file_obj:
         file_content = file_obj.read()
     file_content = base64.encodebytes(file_content).decode()
 
     emit_payload = {
-        'file_name': os.path.basename(bkp_name),
+        'file_name': os.path.basename(db_file),
         'file_data' : file_content
     }
 
-    Events.trigger(Evt.DATABASE_BACKUP, {
-        'file_name': emit_payload['file_name'],
-        })
-
     emit('database_bkp_done', emit_payload)
-    on_list_backups()
 
 @SOCKET_IO.on('list_backups')
 @catchLogExceptionsWrapper
@@ -1572,6 +1637,11 @@ def on_reset_database(data):
     if RaceContext.cluster:
         cl_data = { 'with_archive': True, 'reset_type': 'races' }
         RaceContext.cluster.emitToSplits('reset_database', cl_data)
+
+    if with_archive:
+        RaceContext.rhdata.set_option('eventName', RaceContext.rhdata.generate_new_event_name())
+        RaceContext.rhdata.set_option('eventDescription', "")
+        RaceContext.rhui.emit_option_update(['eventName', 'eventDescription'])
 
     emit('reset_confirm')
 
@@ -3032,7 +3102,7 @@ def check_requirements():
         num_mismatched = 0
         num_checked = 0
         req_file_name = "requirements.txt" if RHUtils.is_sys_raspberry_pi() else "reqsNonPi.txt"
-        with open(req_file_name) as rf:
+        with open(PROGRAM_DIR + "/" + req_file_name) as rf:
             for line in rf.readlines():
                 for entry in chk_list:
                     if line.startswith(entry[0]):
@@ -3049,14 +3119,16 @@ def check_requirements():
     
 
 class plugin_class():
-    def __init__(self, name):
+    def __init__(self, name, dir, is_bundled):
         self.name = name
+        self.dir = dir
         self.module = None
         self.meta = None
         self.enabled = True #TODO: remove temporary default-enable of all plugins
         self.loaded = False
         self.load_issue = None
         self.load_issue_detail = None
+        self.is_bundled = is_bundled
 
 def load_plugin(plugin):
     if not plugin.enabled:
@@ -3064,7 +3136,7 @@ def load_plugin(plugin):
         return False
 
     try:
-        with open(F'plugins/{plugin.name}/manifest.json', 'r') as f:
+        with open(F'{plugin.dir}/plugins/{plugin.name}/manifest.json', 'r') as f:
             meta = json.load(f)
 
         if isinstance(meta, dict):
@@ -3181,6 +3253,7 @@ def rh_program_initialize(reg_endpoints_flag=True):
         logger.debug('Program started at {:.0f}, time={}'.format(RaceContext.serverstate.program_start_epoch_time, \
                                                                  RHTimeFns.epochMsToFormattedStr(RaceContext.serverstate.program_start_epoch_time)))
         RHUtils.idAndLogSystemInfo()
+        logger.info('Data path: {0}'.format(DATA_DIR))
 
         check_requirements()
 
@@ -3191,12 +3264,20 @@ def rh_program_initialize(reg_endpoints_flag=True):
 
         # Plugin handling
         plugin_modules = []
-        if os.path.isdir('./plugins'):
-            dirs = [f.name for f in os.scandir('./plugins') if f.is_dir()]
+        if os.path.isdir(PROGRAM_DIR + '/plugins'):
+            dirs = [f.name for f in os.scandir(PROGRAM_DIR + '/plugins') if f.is_dir()]
             for name in dirs:
-                plugin_modules.append(plugin_class(name))
+                plugin_modules.append(plugin_class(name, PROGRAM_DIR, True))
         else:
-            logger.warning('No plugins directory found.')
+            logger.warning('No bundled plugins directory found.')
+
+        if PROGRAM_DIR != DATA_DIR:
+            if os.path.isdir(DATA_DIR + '/plugins'):
+                dirs = [f.name for f in os.scandir(DATA_DIR + '/plugins') if f.is_dir()]
+                for name in dirs:
+                    plugin_modules.append(plugin_class(name, DATA_DIR, False))
+            else:
+                logger.info('No user plugins directory found.')
 
         for plugin in plugin_modules:
             if load_plugin(plugin):
