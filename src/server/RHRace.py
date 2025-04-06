@@ -801,6 +801,11 @@ class RHRace():
                             lap_ok_flag = True
                             lap_late_flag = False
                             pilot_done_flag = False
+                            if lap_number != 0:
+                                if lap_time > 90000:
+                                    lap_number = 0
+                                else:
+                                    lap_number = self.get_active_laps(True)[node.index][-1].lap_number + 1
                             if lap_number != 0:  # if initial lap then always accept and don't check lap time; else:
                                 if lap_time <= 0: # if lap is non-sequential
                                     logger.info('Ignoring lap prior to already recorded lap: Node={}, lap={}, lapTime={}, sinceStart={}, source={}, pilot: {}' \
@@ -926,7 +931,7 @@ class RHRace():
                                     lap_number += 1
 
                                 # announce lap
-                                if lap_number > 0:
+                                if lap_number >= 0:
                                     check_leader = race_format.win_condition != WinCondition.NONE and \
                                                    self.win_status != WinStatus.DECLARED
                                     # announce pilot lap number unless winner declared and pilot has finished final lap

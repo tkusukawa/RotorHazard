@@ -998,15 +998,19 @@
 							ttstext = msg.pilot;
 					}
 	
-					if (msg.lap && (rotorhazard.voice_lap_count == 1 ||
-								(rotorhazard.voice_lap_count == 2 && (!msg.team_phonetic)))) {
+					if (rotorhazard.voice_lap_count == 1 ||
+								(rotorhazard.voice_lap_count == 2 && (!msg.team_phonetic))) {
 						if (ttstext.length > 0)
 							ttstext += ", ";
-						ttstext += __l('Lap') + " " + msg.lap;
+						if (msg.lap == 0) {
+							ttstext += __l('Start');
+						} else {
+							ttstext += __l('Lap') + " " + msg.lap;
+						}
 					}
 	
-					if (rotorhazard.voice_lap_time == 1 ||
-								(rotorhazard.voice_lap_time == 2 && (!msg.team_phonetic))) {
+					if (msg.lap && (rotorhazard.voice_lap_time == 1 ||
+								(rotorhazard.voice_lap_time == 2 && (!msg.team_phonetic)))) {
 						if (ttstext.length > 0)
 							ttstext += ", ";
 						ttstext += msg.phonetic;
