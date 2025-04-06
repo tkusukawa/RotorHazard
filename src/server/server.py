@@ -1,6 +1,6 @@
 '''RotorHazard server script'''
-RELEASE_VERSION = "4.3.0-dev.2" # Public release version code
-SERVER_API = 45 # Server API version
+RELEASE_VERSION = "4.3.0-dev.4" # Public release version code
+SERVER_API = 46 # Server API version
 NODE_API_SUPPORTED = 18 # Minimum supported node version
 NODE_API_BEST = 35 # Most recent node API
 JSON_API = 3 # JSON API version
@@ -64,42 +64,78 @@ import signal
 import werkzeug
 
 from flask import Flask, send_from_directory, request, Response, templating, redirect, abort, copy_current_request_context
+from flask.blueprints import Blueprint
 from flask_socketio import SocketIO, emit
 
 PROGRAM_DIR = os.path.dirname(os.path.realpath(sys.argv[0]))
 
-# determine data location, with priority to:
-# 1 --data command-line arg
-# 2 datapath.ini
-# 3 current working dir
+# determine data location
+DATA_DIR = None
+CONFIG_FILE_NAME = 'config.json'
+implicit_program_dir_flag = False
+
+# 1: --data command-line arg
 if __name__ == '__main__' and len(sys.argv) > 1 and CMDARG_DATA_DIR in sys.argv:
     data_dir_arg_idx = sys.argv.index(CMDARG_DATA_DIR) + 1
     if data_dir_arg_idx < len(sys.argv):
-        if os.path.exists(sys.argv[data_dir_arg_idx]):
-            os.chdir(sys.argv[data_dir_arg_idx])
+        data_path = os.path.expanduser(sys.argv[data_dir_arg_idx])  # expand '~' to user-home directory
+        if os.path.exists(data_path):
+            DATA_DIR = data_path
         else:
             print("Unable to find given data location: {0}".format(sys.argv[data_dir_arg_idx]))
             sys.exit(1)
     else:
         print("Usage: python server.py --data {0}".format(CMDARG_DATA_DIR))
         sys.exit(1)
-else:
+
+# 2: datapath.ini
+if not DATA_DIR:
     try:
-        with open(PROGRAM_DIR + '/datapath.ini', 'r') as f:
-            data_path = f.readline().strip()
-            if os.path.exists(data_path):
-                os.chdir(data_path)
-            else:
-                print("datapath.ini points to an invalid system location.")
-                sys.exit(1)
+        datapath_ini_path_str = os.path.join(PROGRAM_DIR, 'datapath.ini')
+        with open(datapath_ini_path_str, 'r') as f:
+            data_path = os.path.expanduser(f.readline().strip())  # expand '~' to user-home directory
+            if len(data_path) > 0:
+                if os.path.exists(data_path):
+                    DATA_DIR = data_path
+                else:
+                    print('"{}" file points to an invalid system location: "{}"'.\
+                          format(datapath_ini_path_str, data_path))
+                    sys.exit(1)
     except IOError:
         # missing file is valid
         pass
     except Exception as ex:
-        print("datapath.ini is invalid; error is: " + str(ex))
+        print('Error processing "{}" file: {}'.format(datapath_ini_path_str, ex))
         sys.exit(1)
 
-DATA_DIR = os.getcwd()
+# 3: ~/rh-data, if exists
+if not DATA_DIR:
+    data_path = os.path.expanduser("~/rh-data")
+    if os.path.isdir(data_path):
+        DATA_DIR = data_path
+
+# 4: Implicit run from PROGRAM_DIR
+# If "config.json" exists in PROGRAM_DIR, use PROGRAM_DIR as data dir and prompt user with a choice:
+if not DATA_DIR:
+    if os.path.exists(os.path.join(PROGRAM_DIR, CONFIG_FILE_NAME)):
+        DATA_DIR = PROGRAM_DIR
+        implicit_program_dir_flag = True
+
+# 5: If CWD contains config use CWD
+if not DATA_DIR:
+    if os.path.exists(os.path.join(os.getcwd(), CONFIG_FILE_NAME)):
+        DATA_DIR = os.getcwd()
+
+# 6: ~/rh-data, creating as needed
+if not DATA_DIR:
+    try:
+        os.makedirs(os.path.expanduser("~/rh-data"), exist_ok=True)
+    except OSError:
+        print("Unable to access or create ~/rh-data and no alternate path specified")
+        sys.exit(1)
+    DATA_DIR = os.path.expanduser("~/rh-data")
+
+os.chdir(DATA_DIR)
 
 DB_FILE_NAME = 'database.db'
 DB_BKP_DIR_NAME = 'db_bkp'
@@ -120,6 +156,7 @@ import socket
 import random
 import string
 import json
+from pathlib import Path
 
 RHUtils.checkPythonVersion(MIN_PYTHON_MAJOR_VERSION, MIN_PYTHON_MINOR_VERSION)
 
@@ -142,7 +179,11 @@ import util.stm32loader as stm32loader
 from eventmanager import Evt, EventManager
 
 # Filter manager
-from filtermanager import Flt, FilterManager
+from filtermanager import FilterManager
+
+# Plugin manager
+import requests
+from util.plugin_installation import PluginInstallationManager
 
 # LED imports
 from led_event_manager import LEDEventManager, NoLEDManager, ClusterLEDManager, LEDEvent, Color, ColorVal, ColorPattern
@@ -163,12 +204,15 @@ from HeatGenerator import HeatGeneratorManager
 RaceContext = RaceContext.RaceContext()
 RHAPI = RHAPI.RHAPI(RaceContext)
 
+RaceContext.serverstate.server_instance_token = random.random()
 RaceContext.serverstate.program_start_epoch_time = _program_start_epoch_time
 RaceContext.serverstate.program_start_mtonic = _program_start_mtonic
 RaceContext.serverstate.mtonic_to_epoch_millis_offset = RaceContext.serverstate.program_start_epoch_time - \
                                                         1000.0*RaceContext.serverstate.program_start_mtonic
 RaceContext.serverstate.data_dir = DATA_DIR
 RaceContext.serverstate.program_dir = PROGRAM_DIR
+RaceContext.serverstate.implicit_program_dir_flag = implicit_program_dir_flag
+RaceContext.serverstate.do_rhdata_migrate_flag = False
 
 Events = EventManager(RaceContext)
 RaceContext.events = Events
@@ -184,6 +228,7 @@ HardwareHelpers = {}
 UI_server_messages = {}
 Auth_succeeded_flag = False
 
+SERVER_PROCESS_RESTART_FLAG = False
 HEARTBEAT_THREAD = None
 BACKGROUND_THREADS_ENABLED = True
 HEARTBEAT_DATA_RATE_FACTOR = 5
@@ -201,7 +246,7 @@ if __name__ == '__main__' and len(sys.argv) > 1:
     if CMDARG_VERSION_LONG_STR in sys.argv or CMDARG_VERSION_SHORT_STR in sys.argv:
         sys.exit(0)
     if CMDARG_ZIP_LOGS_STR in sys.argv:
-        log.create_log_files_zip(logger, RaceContext.serverconfig.filename, DB_FILE_NAME)
+        log.create_log_files_zip(logger, RaceContext.serverconfig.filename, DB_FILE_NAME, PROGRAM_DIR)
         sys.exit(0)
     if CMDARG_VIEW_DB_STR in sys.argv:
         viewdbArgIdx = sys.argv.index(CMDARG_VIEW_DB_STR) + 1
@@ -237,7 +282,7 @@ Current_log_path_name = log.later_stage_setup(RaceContext.serverconfig.get_secti
 def log_error_callback_fn(*args):
     if not is_ui_message_set("errors-logged"):
         set_ui_message("errors-logged",\
-                   __("Error messages have been logged, <a href=\"/hardwarelog?log_level=ERROR\">click here</a> to view them"),\
+                   f'{__("Error messages have been logged.")} (<a href=\"/hardwarelog?log_level=ERROR\">{__("View error log")}</a>)',\
                    header="Notice", subclass="errors-logged")
         if Auth_succeeded_flag:
             SOCKET_IO.emit('update_server_messages', get_ui_server_messages_str())
@@ -293,6 +338,10 @@ def get_ui_server_messages_str():
     if len(server_messages_formatted):
         server_messages_formatted = '<ul>' + server_messages_formatted + '</ul>'
     return server_messages_formatted
+
+def clear_ui_message(mainclass):
+    if mainclass in UI_server_messages:
+        UI_server_messages.pop(mainclass)
 
 # Wrapper to be used as a decorator on callback functions that do database calls,
 #  so their exception details are sent to the log file (instead of 'stderr')
@@ -404,6 +453,14 @@ def requires_auth(f):
 def render_template(template_name_or_list, **context):
     try:
         check_log_error_alert()
+        context.update({
+            'serverInfo': RaceContext.serverstate.template_info_dict,
+            'getOption': RaceContext.rhdata.get_option,
+            'getConfig': RaceContext.serverconfig.get_item,
+            '__': __,
+            'Debug': RaceContext.serverconfig.get_item('GENERAL', 'DEBUG'),
+            'restart_flag': RaceContext.serverstate.restart_required
+        })
         return templating.render_template(template_name_or_list, **context)
     except Exception:
         logger.exception("Exception in render_template")
@@ -425,25 +482,24 @@ def render_index():
     if RaceContext.serverconfig.config_file_status == 0:
         return redirect("/first-run", code=302)
 
-    return render_template('home.html', serverInfo=RaceContext.serverstate.template_info_dict,
-                           getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__, Debug=RaceContext.serverconfig.get_item('GENERAL', 'DEBUG'))
+    return render_template('home.html')
 
 @APP.route('/first-run')
 @requires_auth
 def render_welcome():
     '''Route to first-run (admin) setup.'''
     RaceContext.serverconfig.config_file_status = 1
-    return render_template('first-run.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__)
+    return render_template('first-run.html')
 
 @APP.route('/event')
 def render_event():
     '''Route to heat summary page.'''
-    return render_template('event.html', num_nodes=RaceContext.race.num_nodes, serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__)
+    return render_template('event.html', num_nodes=RaceContext.race.num_nodes)
 
 @APP.route('/results')
 def render_results():
     '''Route to round summary page.'''
-    return render_template('results.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__, Debug=RaceContext.serverconfig.get_item('GENERAL', 'DEBUG'))
+    return render_template('results.html')
 
 @APP.route('/run')
 @requires_auth
@@ -458,7 +514,7 @@ def render_run():
                 'index': idx
             })
 
-    return render_template('run.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('run.html',
         led_enabled=(RaceContext.led_manager.isEnabled() or (RaceContext.cluster and RaceContext.cluster.hasRecEventsSecondaries())),
         vrx_enabled=RaceContext.vrx_manager.isEnabled(),
         num_nodes=RaceContext.race.num_nodes,
@@ -477,7 +533,7 @@ def render_current():
                 'index': idx
             })
 
-    return render_template('current.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('current.html',
         num_nodes=RaceContext.race.num_nodes,
         nodes=nodes,
         cluster_has_secondaries=(RaceContext.cluster and RaceContext.cluster.hasSecondaries()))
@@ -486,21 +542,21 @@ def render_current():
 @requires_auth
 def render_marshal():
     '''Route to race management page.'''
-    return render_template('marshal.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('marshal.html',
         num_nodes=RaceContext.race.num_nodes)
 
 @APP.route('/format')
 @requires_auth
 def render_format():
     '''Route to settings page.'''
-    return render_template('format.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
-        num_nodes=RaceContext.race.num_nodes, Debug=RaceContext.serverconfig.get_item('GENERAL', 'DEBUG'))
+    return render_template('format.html',
+        num_nodes=RaceContext.race.num_nodes)
 
 @APP.route('/settings')
 @requires_auth
 def render_settings():
     '''Route to settings page.'''
-    return render_template('settings.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('settings.html',
                            led_enabled=(RaceContext.led_manager.isEnabled() or (RaceContext.cluster and RaceContext.cluster.hasRecEventsSecondaries())),
                            led_events_enabled=RaceContext.led_manager.isEnabled(),
                            vrx_enabled=RaceContext.vrx_manager.isEnabled(),
@@ -508,40 +564,50 @@ def render_settings():
                            server_messages=get_ui_server_messages_str(),
                            cluster_has_secondaries=(RaceContext.cluster and RaceContext.cluster.hasSecondaries()),
                            node_fw_updatable=(RaceContext.interface.get_fwupd_serial_name()!=None),
-                           is_raspberry_pi=RHUtils.is_sys_raspberry_pi(),
+                           is_raspberry_pi=RHUtils.is_sys_raspberry_pi())
+
+@APP.route('/advanced-settings')
+@requires_auth
+def render_advanced_settings():
+    '''Route to settings page.'''
+    return render_template('advanced-settings.html',
+                           serverInfo=RaceContext.serverstate.template_info_dict,
+                           getOption=RaceContext.rhdata.get_option,
+                           getConfig=RaceContext.serverconfig.get_item,
+                           __=__,
                            Debug=RaceContext.serverconfig.get_item('GENERAL', 'DEBUG'))
 
 @APP.route('/streams')
 def render_stream():
     '''Route to stream index.'''
-    return render_template('streams.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('streams.html',
         num_nodes=RaceContext.race.num_nodes)
 
 @APP.route('/stream/results')
 def render_stream_results():
     '''Route to current race leaderboard stream.'''
-    return render_template('streamresults.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('streamresults.html',
         num_nodes=RaceContext.race.num_nodes)
 
 @APP.route('/stream/node/<int:node_id>')
 def render_stream_node(node_id):
     '''Route to single node overlay for streaming.'''
     use_inactive_nodes = 'true' if request.args.get('use_inactive_nodes') else 'false'
-    return render_template('streamnode.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('streamnode.html',
         node_id=node_id-1, use_inactive_nodes=use_inactive_nodes
     )
 
 @APP.route('/stream/class/<int:class_id>')
 def render_stream_class(class_id):
     '''Route to class leaderboard display for streaming.'''
-    return render_template('streamclass.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('streamclass.html',
         class_id=class_id
     )
 
 @APP.route('/stream/heat/<int:heat_id>')
 def render_stream_heat(heat_id):
     '''Route to heat display for streaming.'''
-    return render_template('streamheat.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('streamheat.html',
         num_nodes=RaceContext.race.num_nodes,
         heat_id=heat_id
     )
@@ -551,27 +617,41 @@ def render_stream_heat(heat_id):
 def render_scanner():
     '''Route to scanner page.'''
 
-    return render_template('scanner.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('scanner.html',
         num_nodes=RaceContext.race.num_nodes)
 
 @APP.route('/decoder')
 @requires_auth
 def render_decoder():
     '''Route to race management page.'''
-    return render_template('decoder.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('decoder.html',
         num_nodes=RaceContext.race.num_nodes)
 
 @APP.route('/imdtabler')
 def render_imdtabler():
     '''Route to IMDTabler page.'''
-    return render_template('imdtabler.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__)
+    return render_template('imdtabler.html')
 
 @APP.route('/updatenodes')
 @requires_auth
 def render_updatenodes():
     '''Route to update nodes page.'''
-    return render_template('updatenodes.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__, \
+    return render_template('updatenodes.html',
                            fw_src_str=getDefNodeFwUpdateUrl())
+
+@APP.route('/plugins')
+@requires_auth
+def render_plugin_manager():
+    '''Route to settings page.'''
+    return render_template('plugins.html')
+
+'''User's shared folder.'''
+APP.register_blueprint(Blueprint(
+    'user', __name__,
+    static_url_path='/shared',
+    static_folder=os.path.join(DATA_DIR, 'shared')
+    ))
+
 
 # Debug Routes
 
@@ -579,13 +659,13 @@ def render_updatenodes():
 @requires_auth
 def render_hardwarelog():
     '''Route to hardware log page.'''
-    return render_template('hardwarelog.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__)
+    return render_template('hardwarelog.html')
 
 @APP.route('/database')
 @requires_auth
 def render_database():
     '''Route to database page.'''
-    return render_template('database.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__,
+    return render_template('database.html',
         pilots=RaceContext.rhdata.get_pilots(),
         heats=RaceContext.rhdata.get_heats(),
         heatnodes=RaceContext.rhdata.get_heatNodes(),
@@ -600,7 +680,7 @@ def render_database():
 @requires_auth
 def render_vrxstatus():
     '''Route to VRx status debug page.'''
-    return render_template('vrxstatus.html', serverInfo=RaceContext.serverstate.template_info_dict, getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item, __=__)
+    return render_template('vrxstatus.html')
 
 # Documentation Viewer
 
@@ -619,12 +699,7 @@ def render_viewDocs():
                     docPath = translated_path
             with io.open(docPath, 'r', encoding="utf-8") as f:
                 doc = f.read()
-            return templating.render_template('viewdocs.html',
-                serverInfo=RaceContext.serverstate.template_info_dict,
-                getOption=RaceContext.rhdata.get_option, getConfig=RaceContext.serverconfig.get_item,
-                __=__,
-                doc=doc
-                )
+            return render_template('viewdocs.html', doc=doc)
     except Exception:
         logger.exception("Exception in render_template")
     return "Error rendering documentation"
@@ -826,6 +901,8 @@ def on_load_data(data):
         if isinstance(load_type, dict):
             if load_type['type'] == 'ui':
                 RaceContext.rhui.emit_ui(load_type['value'], nobroadcast=True)
+            if load_type['type'] == 'config':
+                RaceContext.rhui.emit_config_update(load_type['value'], nobroadcast=True)
         elif load_type == 'node_data':
             RaceContext.rhui.emit_node_data(nobroadcast=True)
         elif load_type == 'environmental_data':
@@ -834,14 +911,22 @@ def on_load_data(data):
             RaceContext.rhui.emit_frequency_data(nobroadcast=True)
             if Use_imdtabler_jar_flag:
                 heartbeat_thread_function.imdtabler_flag = True
+        elif load_type == 'heat_list':
+            RaceContext.rhui.emit_heat_list(nobroadcast=True)
         elif load_type == 'heat_data':
             RaceContext.rhui.emit_heat_data(nobroadcast=True)
+        elif load_type == 'heat_attribute_types':
+            RaceContext.rhui.emit_heat_attribute_types(nobroadcast=True)
         elif load_type == 'seat_data':
             RaceContext.rhui.emit_seat_data(nobroadcast=True)
+        elif load_type == 'class_list':
+            RaceContext.rhui.emit_class_list(nobroadcast=True)
         elif load_type == 'class_data':
             RaceContext.rhui.emit_class_data(nobroadcast=True)
         elif load_type == 'format_data':
             RaceContext.rhui.emit_format_data(nobroadcast=True)
+        elif load_type == 'pilot_list':
+            RaceContext.rhui.emit_pilot_list(nobroadcast=True)
         elif load_type == 'pilot_data':
             RaceContext.rhui.emit_pilot_data(nobroadcast=True)
         elif load_type == 'result_data':
@@ -898,6 +983,8 @@ def on_load_data(data):
             RaceContext.rhui.emit_race_points_method_list()
         elif load_type == 'plugin_list':
             RaceContext.rhui.emit_plugin_list(nobroadcast=True)
+        elif load_type == 'plugin_repo':
+            RaceContext.rhui.emit_plugin_repo(nobroadcast=True)
         elif load_type == 'cluster_status':
             RaceContext.rhui.emit_cluster_status()
         elif load_type == 'hardware_log_init':
@@ -1130,6 +1217,18 @@ def on_set_scan(data):
         gevent.sleep(0.100)  # pause/spawn to get clear of heartbeat actions for scanner
         gevent.spawn(restore_node_frequency, node_index)
 
+@SOCKET_IO.on('expand_heat')
+@catchLogExcWithDBWrapper
+def on_expand_heat(data):
+    if data and 'heat' in data:
+        RaceContext.rhui.emit_expanded_heat(data['heat'])
+
+@SOCKET_IO.on('get_class_recents')
+@catchLogExcWithDBWrapper
+def on_get_class_recents(data):
+    if data and 'class_id' in data:
+        RaceContext.rhui.emit_recent_heats(data['class_id'], 6) # TODO: Place var in UI Config
+
 @SOCKET_IO.on('add_heat')
 @catchLogExcWithDBWrapper
 def on_add_heat(data=None):
@@ -1144,6 +1243,7 @@ def on_add_heat(data=None):
     else:
         RaceContext.rhdata.add_heat()
     RaceContext.rhui.emit_heat_data()
+    RaceContext.rhui.emit_race_status()
 
 @SOCKET_IO.on('duplicate_heat')
 @catchLogExcWithDBWrapper
@@ -1174,13 +1274,18 @@ def on_activate_heat(data):
 def on_alter_heat(data):
     '''Update heat.'''
     heat, altered_race_list = RaceContext.rhdata.alter_heat(data)
-    if RaceContext.race.current_heat == heat.id:  # if current heat was altered then update heat data
-        RaceContext.race.set_heat(heat.id, silent=True)
-    RaceContext.rhui.emit_heat_data(noself=True)
-    if ('name' in data or 'pilot' in data or 'class' in data) and len(altered_race_list):
-        RaceContext.rhui.emit_result_data() # live update rounds page
-        message = __('Alterations made to heat: {0}').format(heat.display_name)
-        RaceContext.rhui.emit_priority_message(message, False)
+    if not data.get('coop_data_flag', False):  # if only co-op data modified then skip rest of heat-data handling
+        if RaceContext.race.current_heat == heat.id:  # if current heat was altered then update heat data
+            RaceContext.race.set_heat(heat.id, silent=True)
+        RaceContext.rhui.emit_heat_data(noself=True)
+        if ('name' in data or 'pilot' in data or 'class' in data) and len(altered_race_list):
+            RaceContext.rhui.emit_result_data() # live update rounds page
+            message = __('Alterations made to heat: {0}').format(heat.display_name)
+            RaceContext.rhui.emit_priority_message(message, False)
+    else:        # keep time fields in the current race in sync with the current race format
+        RaceContext.race.set_race_format_time_fields(RaceContext.race.format, RaceContext.race.current_heat)
+        RaceContext.rhui.emit_heat_data()
+    RaceContext.rhui.emit_race_status()
 
 @SOCKET_IO.on('delete_heat')
 @catchLogExcWithDBWrapper
@@ -1194,6 +1299,7 @@ def on_delete_heat(data):
         if RaceContext.race.current_heat == heat_id:  # if current heat was deleted then drop to practice mode (avoids dynamic heat calculation)
             RaceContext.race.set_heat(RHUtils.HEAT_ID_NONE)
         RaceContext.rhui.emit_heat_data()
+        RaceContext.rhui.emit_race_status()
 
 @SOCKET_IO.on('add_race_class')
 @catchLogExcWithDBWrapper
@@ -1247,6 +1353,7 @@ def on_add_pilot(*args):
     '''Adds the next available pilot id number in the database.'''
     RaceContext.rhdata.add_pilot()
     RaceContext.rhui.emit_pilot_data()
+    RaceContext.rhui.emit_heat_data()
 
 @SOCKET_IO.on('alter_pilot')
 @catchLogExcWithDBWrapper
@@ -1255,6 +1362,7 @@ def on_alter_pilot(data):
     _pilot, race_list = RaceContext.rhdata.alter_pilot(data)
 
     RaceContext.rhui.emit_pilot_data(noself=True) # Settings page, new pilot settings
+    RaceContext.rhui.emit_heat_data()
 
     if 'callsign' in data or 'team_name' in data:
         RaceContext.rhui.emit_heat_data() # Settings page, new pilot callsign in heats
@@ -1293,6 +1401,7 @@ def on_set_seat_color(data):
     RaceContext.serverconfig.set_item('LED', 'seatColors', seat_colors)
     RaceContext.race.updateSeatColors()
     RaceContext.rhui.emit_pilot_data()
+    RaceContext.rhui.emit_heat_data()
     RaceContext.rhui.emit_seat_data()
 
     Events.trigger(Evt.CONFIG_SET, {
@@ -1308,6 +1417,7 @@ def on_reset_seat_color(*args):
     RaceContext.serverconfig.set_item('LED', 'seatColors', [])
     RaceContext.race.updateSeatColors()
     RaceContext.rhui.emit_pilot_data()
+    RaceContext.rhui.emit_heat_data()
     RaceContext.rhui.emit_seat_data()
 
     Events.trigger(Evt.CONFIG_SET, {
@@ -1453,9 +1563,10 @@ def on_backup_database(*args):
 @catchLogExcWithDBWrapper
 def on_download_database(data):
     '''Download selected event database file.'''
-    if data and data['event_file']:
-        db_file = data['event_file']
-        download_database(db_file)
+    if type(data) is dict:
+        db_file = data.get('event_file')
+        if db_file and db_file!= '-':
+            download_database(db_file)
 
 def download_database(db_file):
     # read DB data and convert to Base64
@@ -1792,6 +1903,37 @@ def on_reboot_pi(*args):
     else:
         logger.warning("Not executing system reboot command because not RPi")
 
+@SOCKET_IO.on('restart_server')
+def on_restart_server():
+    '''Re-execute the current process.'''
+    global SERVER_PROCESS_RESTART_FLAG
+    SERVER_PROCESS_RESTART_FLAG = True
+    if RaceContext.cluster:
+        RaceContext.cluster.emit('restart_server')
+    if not RaceContext.serverstate.do_rhdata_migrate_flag:
+        RaceContext.rhui.emit_priority_message(__('Server is restarting.'), True, caller='shutdown')
+    logger.info('Restarting server process')
+    Events.trigger(Evt.SHUTDOWN)
+    stop_background_threads()
+    gevent.sleep(0.5)
+    if RaceContext.serverstate.do_rhdata_migrate_flag:
+        Database.close_database()
+        log.close_logging()
+        migrate_result = RHUtils.migrate_data_dir(PROGRAM_DIR, os.path.expanduser('~/rh-data'))
+        if migrate_result is True:
+            RaceContext.rhui.emit_priority_message("{0} {1}".format(
+                    __('Migration Successful.'),
+                    __('Server is restarting.')
+                ), True, caller='shutdown')
+        else:
+            SERVER_PROCESS_RESTART_FLAG = False
+            RaceContext.rhui.emit_priority_message('{0}<br /><br /><small>{1}: {2}<small>'.format(
+                    __('Errors encountered during migration. Please reset RotorHazard with a clean installation.'),
+                    __('Debug'),
+                    migrate_result
+                ), True, caller='shutdown')
+    gevent.spawn(SOCKET_IO.stop)  # shut down flask http server
+
 @SOCKET_IO.on('kill_server')
 @catchLogExceptionsWrapper
 def on_kill_server(*args):
@@ -1823,7 +1965,7 @@ def on_set_log_level(data):
 @catchLogExceptionsWrapper
 def on_download_logs(data):
     '''Download logs (as .zip file).'''
-    zip_path_name = log.create_log_files_zip(logger, RaceContext.serverconfig.filename, DB_FILE_NAME, data)
+    zip_path_name = log.create_log_files_zip(logger, RaceContext.serverconfig.filename, DB_FILE_NAME, PROGRAM_DIR, data)
     RHUtils.checkSetFileOwnerPi(log.LOGZIP_DIR_NAME)
     if zip_path_name:
         RHUtils.checkSetFileOwnerPi(zip_path_name)
@@ -1876,6 +2018,9 @@ def on_set_race_format(data):
         race_format_val = data['race_format']
         RaceContext.race.format = RaceContext.rhdata.get_raceFormat(race_format_val)
 
+        # keep time fields in the current race in sync with the current race format
+        RaceContext.race.set_race_format_time_fields(RaceContext.race.format, RaceContext.race.current_heat)
+
         Events.trigger(Evt.RACE_FORMAT_SET, {
             'race_format': race_format_val,
             })
@@ -1907,10 +2052,14 @@ def on_alter_race_format(data):
 
     if race_format != False:
         RaceContext.race.format = race_format
+        # keep time fields in the current race in sync with the current race format
+        RaceContext.race.set_race_format_time_fields(RaceContext.race.format, RaceContext.race.current_heat)
+        RaceContext.rhui.emit_format_data()
+        RaceContext.rhui.emit_heat_data()
+        RaceContext.rhui.emit_race_status()
         RaceContext.rhui.emit_current_laps()
 
         if 'format_name' in data:
-            RaceContext.rhui.emit_format_data()
             RaceContext.rhui.emit_class_data()
 
         if len(race_list):
@@ -1924,12 +2073,19 @@ def on_alter_race_format(data):
 @catchLogExcWithDBWrapper
 def on_delete_race_format(data):
     '''Delete race format'''
-    format_id = data['format_id']
-    result = RaceContext.rhdata.delete_raceFormat(format_id)
-
-    if result:
-        first_raceFormat = RaceContext.rhdata.get_first_raceFormat()
-        RaceContext.race.format = first_raceFormat
+    format_id = data.get('format_id', 0)
+    if RaceContext.rhdata.delete_raceFormat(format_id):
+        # if current race format was deleted then select previous race format in list, or first if not found
+        if RaceContext.race.format and hasattr(RaceContext.race.format, 'id') and \
+                                        RaceContext.race.format.id == format_id:
+            new_raceFormat = RaceContext.rhdata.get_raceFormat(format_id - 1 if format_id > 0 else 0)
+            if not new_raceFormat:
+                new_raceFormat = RaceContext.rhdata.get_first_raceFormat()
+            RaceContext.race.format = new_raceFormat
+        # keep time fields in the current race in sync with the current race format
+        RaceContext.race.set_race_format_time_fields(RaceContext.race.format, RaceContext.race.current_heat)
+        RaceContext.rhui.emit_heat_data()
+        RaceContext.rhui.emit_race_status()
         RaceContext.rhui.emit_current_laps()
         RaceContext.rhui.emit_format_data()
     else:
@@ -2226,6 +2382,7 @@ def on_confirm_heat(data):
 def on_set_current_heat(data):
     '''Update the current heat variable and data.'''
     RaceContext.race.set_heat(data['heat'])
+    RaceContext.rhui.emit_race_status()
 
 @SOCKET_IO.on('delete_lap')
 def on_delete_lap(data):
@@ -2297,6 +2454,15 @@ def on_set_config(data):
     Events.trigger(Evt.CONFIG_SET, {
         'section': data['section'],
         'key': data['key'],
+        'value': data['value'],
+        })
+
+@SOCKET_IO.on('set_config_section')
+@catchLogExceptionsWrapper
+def on_set_config_section(data):
+    RaceContext.serverconfig.set_section(data['section'], data['value'])
+    Events.trigger(Evt.CONFIG_SET, {
+        'section': data['section'],
         'value': data['value'],
         })
 
@@ -2513,6 +2679,54 @@ def set_vrx_node(data):
         logger.info("Set VRx {0} to node {1}".format(vrx_id, node))
     else:
         logger.error("Can't set VRx {0} to node {1}: Controller unavailable".format(vrx_id, node))
+
+@SOCKET_IO.on('plugin_install')
+@catchLogExceptionsWrapper
+def on_plugin_install(data):
+    plugin_id = 'unknown'
+    try:
+        if data['method'] == 'domain':
+            plugin_id = data['domain']
+            RaceContext.plugin_manager.download_plugin(data['domain'])
+        elif data['method'] == 'upload':
+            plugin_id = '(uploaded file)'
+            RaceContext.plugin_manager.install_from_upload(data['source_data'])
+        RaceContext.serverstate.set_restart_required()
+        # TODO: update local plugin list & remote status
+        RaceContext.rhui.emit_plugin_repo()
+        RaceContext.rhui.emit_priority_message(__("Plugin installation succeeded. Please restart."))
+        logger.info("Installed plugin {}".format(plugin_id))
+    except Exception as ex:
+        RaceContext.rhui.emit_priority_message(f'{__("Plugin install failed")}: {__(ex)}')
+        logger.info("Failed to install plugin {}".format(plugin_id))
+
+@SOCKET_IO.on('plugin_delete')
+@catchLogExceptionsWrapper
+def on_plugin_delete(data):
+    if 'domain' in data and data['domain']:
+        try:
+            RaceContext.plugin_manager.delete_plugin_dir(data['domain'])
+            RaceContext.serverstate.set_restart_required()
+            # TODO: update local plugin list
+            RaceContext.rhui.emit_priority_message(__("Plugin deletion succeeded. Please restart."))
+            logger.info("Removed plugin {}".format(data['domain']))
+        except Exception as ex:
+            RaceContext.rhui.emit_priority_message(f'{__("Plugin deletion failed")}: {__(ex)}')
+            logger.info("Failed to delete plugin {}".format(data['domain']))
+
+@SOCKET_IO.on('datadir_handler')
+@catchLogExcWithDBWrapper
+def on_datadir_handler(data):
+    method = data['method']
+    if method:
+        if method == 'migrate':
+            RaceContext.serverstate.do_rhdata_migrate_flag = True
+            on_restart_server()
+        elif method == 'explicit_program':
+            if RHUtils.write_datapath_file(PROGRAM_DIR, PROGRAM_DIR):
+                clear_ui_message('implicit-data-dir')
+                RaceContext.rhui.emit_refresh_page()
+
 
 #
 # Program Functions
@@ -3116,7 +3330,7 @@ def check_requirements():
                 header='Warning', subclass='none')
     except:
         logger.exception("Error checking package requirements")
-    
+
 
 class plugin_class():
     def __init__(self, name, dir, is_bundled):
@@ -3135,8 +3349,12 @@ def load_plugin(plugin):
         plugin.load_issue = "disabled"
         return False
 
+    if plugin.is_bundled:
+        plugin_base = 'bundled_plugins'
+    else:
+        plugin_base = 'plugins'
     try:
-        with open(F'{plugin.dir}/plugins/{plugin.name}/manifest.json', 'r') as f:
+        with open(F'{plugin.dir}/{plugin_base}/{plugin.name}/manifest.json', 'r') as f:
             meta = json.load(f)
 
         if isinstance(meta, dict):
@@ -3164,7 +3382,7 @@ def load_plugin(plugin):
         return False
 
     try:
-        plugin.module = importlib.import_module('plugins.' + plugin.name)
+        plugin.module = importlib.import_module(F'{plugin_base}.{plugin.name}')
         if not plugin.module.__file__:
             plugin.load_issue = "unable to load file"
             return False
@@ -3185,6 +3403,8 @@ def load_plugin(plugin):
 
 @catchLogExceptionsWrapper
 def start(port_val=RaceContext.serverconfig.get_item('GENERAL', 'HTTP_PORT'), argv_arr=None):
+    RaceContext.serverconfig.clean_config()
+    RaceContext.serverconfig.save_config()
     with RaceContext.rhdata.get_db_session_handle():  # make sure DB session/connection is cleaned up
         if not RaceContext.serverconfig.get_item('SECRETS', 'SECRET_KEY'):
             new_key = ''.join(random.choice(string.ascii_letters) for _ in range(50))
@@ -3244,6 +3464,23 @@ def start(port_val=RaceContext.serverconfig.get_item('GENERAL', 'HTTP_PORT'), ar
     gevent.sleep(2)  # allow system shutdown command to run before program exit
     log.close_logging()
 
+    if SERVER_PROCESS_RESTART_FLAG:
+        try:
+            args = []
+            for arg in sys.argv:
+                if len(args) > 0 and arg == CMDARG_LAUNCH_B_STR:
+                    break    # don't include "--launchb" arguments
+                args.append(arg)
+            if len(args) > 0 and not os.path.exists(args[0]):  # if not finding "server.py" then
+                args[0] = os.path.join(PROGRAM_DIR, args[0])   # prepend program-dir path
+            args.insert(0, sys.executable)
+            if sys.platform == 'win32':
+                args = ['"%s"' % arg for arg in args]
+            print('Respawning %s' % ' '.join(args))
+            os.execv(sys.executable, args)
+        except Exception as ex:
+            print("Error restarting server: " + str(ex))
+
 @catchLogExceptionsWrapper
 def rh_program_initialize(reg_endpoints_flag=True):
     with RaceContext.rhdata.get_db_session_handle():  # make sure DB session/connection is cleaned up
@@ -3253,6 +3490,8 @@ def rh_program_initialize(reg_endpoints_flag=True):
         logger.debug('Program started at {:.0f}, time={}'.format(RaceContext.serverstate.program_start_epoch_time, \
                                                                  RHTimeFns.epochMsToFormattedStr(RaceContext.serverstate.program_start_epoch_time)))
         RHUtils.idAndLogSystemInfo()
+        logger.info('Virtual Environment: {0}'.format(os.environ.get('VIRTUAL_ENV')))
+        logger.info('Program path: {0}'.format(PROGRAM_DIR))
         logger.info('Data path: {0}'.format(DATA_DIR))
 
         check_requirements()
@@ -3264,20 +3503,19 @@ def rh_program_initialize(reg_endpoints_flag=True):
 
         # Plugin handling
         plugin_modules = []
-        if os.path.isdir(PROGRAM_DIR + '/plugins'):
-            dirs = [f.name for f in os.scandir(PROGRAM_DIR + '/plugins') if f.is_dir()]
+        if os.path.isdir(PROGRAM_DIR + '/bundled_plugins'):
+            dirs = [f.name for f in os.scandir(PROGRAM_DIR + '/bundled_plugins') if f.is_dir()]
             for name in dirs:
                 plugin_modules.append(plugin_class(name, PROGRAM_DIR, True))
         else:
             logger.warning('No bundled plugins directory found.')
 
-        if PROGRAM_DIR != DATA_DIR:
-            if os.path.isdir(DATA_DIR + '/plugins'):
-                dirs = [f.name for f in os.scandir(DATA_DIR + '/plugins') if f.is_dir()]
-                for name in dirs:
-                    plugin_modules.append(plugin_class(name, DATA_DIR, False))
-            else:
-                logger.info('No user plugins directory found.')
+        if os.path.isdir(DATA_DIR + '/plugins'):
+            dirs = [f.name for f in os.scandir(DATA_DIR + '/plugins') if f.is_dir()]
+            for name in dirs:
+                plugin_modules.append(plugin_class(name, DATA_DIR, False))
+        else:
+            logger.info('No user plugins directory found.')
 
         for plugin in plugin_modules:
             if load_plugin(plugin):
@@ -3290,6 +3528,43 @@ def rh_program_initialize(reg_endpoints_flag=True):
                     logger.info("Plugin '{}' not loaded ({})".format(plugin.name, plugin.load_issue))
 
         RaceContext.serverstate.plugins = plugin_modules
+
+        # Load plugin install manager
+        plugin_dir = Path(DATA_DIR).joinpath("plugins")
+        if not plugin_dir.exists():
+            plugin_dir.mkdir()
+
+        remote_config = {
+            'data_uri': RaceContext.serverconfig.get_item('PLUGINS', 'REMOTE_DATA_URI'),
+            'categories_uri': RaceContext.serverconfig.get_item('PLUGINS', 'REMOTE_CATEGORIES_URI')
+        }
+        RaceContext.plugin_manager = PluginInstallationManager(plugin_dir, remote_config)
+
+        try:
+            RaceContext.plugin_manager.load_local_plugin_data()
+        except (FileNotFoundError, TypeError, json.JSONDecodeError):
+            print("Unable to load local plugins")
+            local_loaded = False
+        else:
+            local_loaded = True
+
+        try:
+            RaceContext.plugin_manager.load_remote_plugin_data()
+        except requests.Timeout:
+            print("Unable to load remote plugins")
+            remote_loaded = False
+        else:
+            remote_loaded = True
+
+        if local_loaded and remote_loaded:
+            RaceContext.plugin_manager.apply_update_statuses()
+            if RaceContext.plugin_manager.update_avaliable:
+                set_ui_message(
+                    'plugins',
+                    __("One or more plugins have updates available."),
+                    header='Notice',
+                    subclass='updates-available'
+                )
 
         if (not RHUtils.is_S32_BPill_board()) and RaceContext.serverconfig.get_item('GENERAL', 'FORCE_S32_BPILL_FLAG'):
             RHUtils.set_S32_BPill_boardFlag()
@@ -3547,7 +3822,7 @@ def rh_program_initialize(reg_endpoints_flag=True):
                                                                             staging_delay_tones=0,
                                                                             number_laps_win=0,
                                                                             win_condition=WinCondition.NONE,
-                                                                            team_racing_mode=False,
+                                                                            team_racing_mode=0,
                                                                             start_behavior=0,
                                                                             points_method=None)
 
@@ -3596,6 +3871,29 @@ def rh_program_initialize(reg_endpoints_flag=True):
 
         # make event actions available to cluster/secondary timers
         RaceContext.cluster.setEventActionsObj(EventActionsObj)
+
+        # put time fields in the current race in sync with the current race format
+        RaceContext.race.set_race_format_time_fields(RaceContext.race.format, RaceContext.race.current_heat)
+
+        # display notice if implicitly using program dir as data dir
+        if RaceContext.serverstate.implicit_program_dir_flag:
+            set_ui_message(
+                'implicit-data-dir',
+                '{} {}{}{} {}{}{} {} {}{}{}'.format(
+                    __("User data should be stored separately from program data."),
+                    '<a href="/docs?d=Software Setup.md#the-data-directory">',
+                    __("Why?"),
+                    "</a>",
+                    '<br /><button class="datadir-handler" data-method="migrate">',
+                    __("Migrate user data to <code>~/rh-data</code> (recommended)"),
+                    '</button>',
+                    "|",
+                    '<button class="datadir-handler" data-method="explicit_program">',
+                    __("Keep user data in program directory"),
+                    '</button>'
+                ),
+                header='Notice'
+            )
 
 RHAPI.race._frequencyset_set = on_set_profile # TODO: Refactor management functions
 RHAPI.race._raceformat_set = on_set_race_format # TODO: Refactor management functions

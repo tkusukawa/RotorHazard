@@ -6,6 +6,7 @@ from time import monotonic
 from RHRace import RaceStatus
 from eventmanager import Evt
 from RHUI import UIField, UIFieldType, UIFieldSelectOption
+from RHUtils import HEAT_ID_NONE
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class TracksideConnector():
 
         self._rhapi.ui.socket_listen('ts_race_stage', self.race_stage)
         self._rhapi.ui.socket_listen('ts_race_stop', self.race_stop)
+        self._rhapi.ui.socket_listen('ts_race_abort', self.race_abort)
 
         self._rhapi.fields.register_race_attribute(UIField('trackside_race_ID', "FPVTrackSide Race ID", UIFieldType.TEXT, private=True))
         self._rhapi.fields.register_pilot_attribute(UIField('trackside_pilot_ID', "Trackside Pilot ID", UIFieldType.TEXT, private=True))
@@ -38,16 +40,16 @@ class TracksideConnector():
     def server_info(self, _arg=None):
         self.enabled = True
         info = {
-            'name': self._rhapi.config.get_item('UI', 'timerName'),
-            'logo': self._rhapi.config.get_item('UI', 'timerLogo'),
-            'hue_primary': self._rhapi.config.get_item('UI', 'hue_0'),
-            'sat_primary': self._rhapi.config.get_item('UI', 'sat_0'),
-            'lum_primary': self._rhapi.config.get_item('UI', 'lum_0_low'),
-            'contrast_primary': self._rhapi.config.get_item('UI', 'contrast_0_low'),
-            'hue_secondary': self._rhapi.config.get_item('UI', 'hue_1'),
-            'sat_secondary': self._rhapi.config.get_item('UI', 'sat_1'),
-            'lum_secondmary': self._rhapi.config.get_item('UI', 'lum_1_low'),
-            'contrast_secondmary': self._rhapi.config.get_item('UI', 'contrast_1_low'),
+            'name': self._rhapi.config.get('UI', 'timerName'),
+            'logo': self._rhapi.config.get('UI', 'timerLogo'),
+            'hue_primary': self._rhapi.config.get('UI', 'hue_0'),
+            'sat_primary': self._rhapi.config.get('UI', 'sat_0'),
+            'lum_primary': self._rhapi.config.get('UI', 'lum_0_low'),
+            'contrast_primary': self._rhapi.config.get('UI', 'contrast_0_low'),
+            'hue_secondary': self._rhapi.config.get('UI', 'hue_1'),
+            'sat_secondary': self._rhapi.config.get('UI', 'sat_1'),
+            'lum_secondmary': self._rhapi.config.get('UI', 'lum_1_low'),
+            'contrast_secondmary': self._rhapi.config.get('UI', 'contrast_1_low'),
         }
         info.update(self._rhapi.server_info)
         return info
@@ -72,13 +74,31 @@ class TracksideConnector():
             self._rhapi.race.save()
 
         if arg.get('p'):
-            heat = self._rhapi.db.heat_add()
-            self._rhapi.db.heat_alter(heat.id, name="TrackSide Heat {}".format(heat.id))
-            slots = self._rhapi.db.slots_by_heat(heat.id)
-            slot_list = []
-
             ts_pilot_callsigns = arg.get('p')
             ts_pilot_ids = arg.get('p_id')
+            race_number = arg.get('race_number')
+            round_number = arg.get('round_number')
+            bracket = arg.get('bracket')
+
+            heat = self._rhapi.db.heat_add()
+            if race_number and race_number > 0:
+                if bracket:
+                    heat_name = "{} {}: {} {} · {} {} · {} {}".format(
+                        self._rhapi.__("Heat"), heat.id,
+                        self._rhapi.__("Bracket"), bracket,
+                        self._rhapi.__("Round"), round_number,
+                        self._rhapi.__("Race"), race_number)
+                else:
+                    heat_name = "{} {}: {} {} · {} {}".format(
+                        self._rhapi.__("Heat"), heat.id,
+                        self._rhapi.__("Round"), round_number,
+                        self._rhapi.__("Race"), race_number)
+            else:
+                heat_name = "TrackSide {} {}".format(self._rhapi.__("Heat"), heat.id)
+
+            self._rhapi.db.heat_alter(heat.id, name=heat_name)
+            slots = self._rhapi.db.slots_by_heat(heat.id)
+            slot_list = []
             rh_pilots = self._rhapi.db.pilots
             added_pilot = False
             for idx, ts_pilot_callsign in enumerate(ts_pilot_callsigns):
@@ -141,6 +161,14 @@ class TracksideConnector():
     def race_stop(self, arg=None):
         self._rhapi.race.stop()
 
+    def race_abort(self, arg=None):
+        self._rhapi.race.clear()
+        current_heat = self._rhapi.race.heat
+        all_heats = self._rhapi.db.heats
+        self._rhapi.race.heat = HEAT_ID_NONE
+        self._rhapi.db.heat_delete(current_heat)
+        self._rhapi.ui.broadcast_heats()
+
     def laps_save(self, args):
         race_id = args.get('race_id')
         if race_id and self._trackside_race_id:
@@ -164,8 +192,7 @@ class TracksideConnector():
                             'lap_time': lap.lap_time,
                             'lap_time_formatted': lap.lap_time_formatted,
                             'lap_time_stamp': lap.lap_time_stamp,
-                        })
-                    laps = json.dumps(laps)
+                        })    
                     break
             else:
                 return False
@@ -186,8 +213,8 @@ class TracksideConnector():
 
     def color_setup(self, arg):
         if arg.get('channel_color'):
-            self._rhapi.config.set_item('LED', 'ledColorMode', 0)  # TS supports only "seat" mode
-            self._rhapi.config.set_item('LED', 'seatColors', arg.get('channel_color'))
+            self._rhapi.config.set('LED', 'ledColorMode', 0)  # TS supports only "seat" mode
+            self._rhapi.config.set('LED', 'seatColors', arg.get('channel_color'))
             self._rhapi.race.update_colors()
             self._rhapi.ui.broadcast_pilots()
             self._rhapi.ui.broadcast_heats()

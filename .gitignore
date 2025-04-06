@@ -11,8 +11,7 @@
 
 # RH Database and backups
 *.db
-/src/server/db_bkp/*
-!/src/server/db_bkp/README.md
+/src/server/db_bkp
 
 # Local system configuration
 /src/server/config*.json
@@ -30,7 +29,5 @@ venv
 /src/server/static/user/*
 !/src/server/static/user/README.md
 
-# Plugins, except bundled and README
+# User plugins folder
 /src/server/plugins/*
-!/src/server/plugins/rh_*
-!/src/server/plugins/README.md

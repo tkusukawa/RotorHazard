@@ -460,13 +460,32 @@ The `import_fn` receives as arguments:
 
 ### UI Fields
 
-An `RHUI.UIField` object defines a frontend user interface for collecting data. It is defined in the following format:
-- `name` (string): internal identifier for this parameter
+An `RHUI.UIField` object defines a frontend user interface for collecting data. Data is stored in the event by default, or in persistent configuration if the `persistent_section` key is used. If persistent configuration is used, custom sections should be defined using `RHAPI.config.register_section`.
+
+Fields are defined in the following format:
+
+- `name` (string): internal identifier for this parameter; may not begin with `__`
 - `label` (string): text that appears in the RotorHazard frontend interface
-- `field_type` (UIFieldType): One of `UIFieldType.TEXT`, `UIFieldType.BASIC_INT`, `UIFieldType.SELECT`, or `UIFieldType.CHECKBOX`
+- `field_type` (UIFieldType), one of:
+    - `UIFieldType.TEXT`
+    - `UIFieldType.BASIC_INT`
+    - `UIFieldType.NUMBER`
+    - `UIFieldType.RANGE`
+    - `UIFieldType.SELECT`
+    - `UIFieldType.CHECKBOX`
+    - `UIFieldType.PASSWORD`
+    - `UIFieldType.DATE`
+    - `UIFieldType.TIME`
+    - `UIFieldType.DATETIME`
+    - `UIFieldType.EMAIL`
+    - `UIFieldType.TEL`
+    - `UIFieldType.URL`
 - `value` _optional_ (any): Default value for field
 - `desc` _optional_ (string): additional user-facing text that appears in the RotorHazard frontend interface describing notes or special instructions for use
 - `private` _optional_ (boolean): Prevent automatically generated UI
+- `html_attributes` _optional_ (dict): attribute values passed to HTML to control browser-based validation, such as `min`, `max`, `step`, `minlength`, `maxlength`, `pattern`; only valid values for each field type will be added
+- `persistent_section`: If defined, this field will save to the server's persistent configuration using the provided input for section; if omitted or `None`, data will save to the event
+- `persistent_section`: If set to `True` and `persistent_section` is used, the server will prompt the user to restart the server when this field is altered
 
 If `field_type` is `TEXT`
 
@@ -494,16 +513,23 @@ from RHUI import UIField, UIFieldType, UIFieldSelectOption
 ```
 
 ### Metadata
-Plugin authors are strongly encouraged to declare metadata. In your plugin folder, create the JSON-formatted file `manifest.json` with the following keys. Keys may be omitted or `null`.
+Plugin authors are strongly encouraged to declare metadata. In your plugin folder, create the JSON-formatted file `manifest.json` using any of the following keys. Currently, keys may be omitted or `null` if not applicable, but some may become required in future versions.
 
-- `name`: The name of your plugin
-- `author`: The plugin author's name
+Basic metadata keys include:
+- `name`: the name of your plugin
+- `author`: the plugin author's name
 - `author_uri`: valid HTTP link to the author's website
-- `description`: short description of the plugin's function 
+- `dependencies`: list of [python package requirement specifiers](https://pip.pypa.io/en/stable/reference/requirement-specifiers/)
+- `description`: short description of the plugin's function
+- `documentation_uri`: valid HTTP link to the plugin's documentation
 - `info_uri`: valid HTTP link to a website about the plugin
 - `license`: name of the plugin's license
 - `license_uri`: valid HTTP link to the plugin's license information
-- `version`: a version identifier for the plugin's own code
-- `required_rhapi_version`: the minimum RHAPI version required to run the plugin, such as "1.1" 
+- `required_rhapi_version`: the minimum RHAPI version required to run the plugin, such as "1.1"
+- `version`: a version identifier for the plugin's own code ([semver-formatted](https://semver.org/), ideally)
+- `zip_filename`: filename of zip package, if separately required for distribution (`null` for GitHub releases)
 - `update_uri`: (not yet implemented)
 - `text_domain`: (not yet implemented)
+
+#### Community Plugins
+Community Plugins can be found, installed, and can be updated entirely through the RotorHazard UI. For a plugin to be included in this section, a manifest is required. Some keys or format of keys are restricted, and additional keys such as `domain` and `category` are also defined. See [Community Plugins documentation](https://rotorhazard.github.io/community-plugins/) for more information. 

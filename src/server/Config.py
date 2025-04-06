@@ -16,8 +16,9 @@ class Config:
         self._racecontext = racecontext
         self.filename = filename
         self.config_file_status = None
+        self._backup_run = False
 
-        self.config = {
+        self.config_sections = {
             'SECRETS': {},
             'GENERAL': {},
             'TIMING': {},
@@ -27,7 +28,10 @@ class Config:
             'LED': {},
             'LOGGING': {},
             'SENSORS': {},
+            'PLUGINS': {},
         }
+
+        self.config = copy.copy(self.config_sections)
 
         # LED strip configuration:
         self.config['LED']['LED_COUNT'] = 0  # Number of LED pixels.
@@ -46,8 +50,6 @@ class Config:
         # LED effect configuration
         self.config['LED']['ledEffects'] = ''
         self.config['LED']['ledBrightness'] = 32
-        self.config['LED']['ledColorNodes'] = ''
-        self.config['LED']['ledColorFreqs'] = ''
         self.config['LED']['ledColorMode'] = ''
         self.config['LED']['seatColors'] = [
             "#0022ff",  # Blue
@@ -59,12 +61,6 @@ class Config:
             "#00ffdd",  # Teal
             "#aaaaaa",  # White
         ]
-
-        # Legacy Video Receiver Configuration (DEPRECATED)
-        self.config['VRX_CONTROL'] = {}
-        self.config['VRX_CONTROL']['HOST'] = 'localhost'  # MQTT broker IP Address
-        self.config['VRX_CONTROL']['ENABLED'] = False
-        self.config['VRX_CONTROL']['OSD_LAP_HEADER'] = 'L'
 
         # hardware default configurations
         self.config['HARDWARE']['I2C_BUS'] = 1
@@ -124,6 +120,11 @@ class Config:
         self.config['LOGGING']['FILELOG_LEVEL'] = "INFO"
         self.config['LOGGING']['FILELOG_NUM_KEEP'] = 30
         self.config['LOGGING']['CONSOLE_STREAM'] = "stdout"
+        self.config['LOGGING']['EVENTS'] = 1
+
+        # plugin defaults
+        self.config['PLUGINS']['REMOTE_DATA_URI'] = None
+        self.config['PLUGINS']['REMOTE_CATEGORIES_URI'] = None
 
         self.InitResultStr = None
         self.InitResultLogLevel = logging.INFO
@@ -149,8 +150,6 @@ class Config:
             migrateItem('pilotSort', 'UI'),
             migrateItem('ledEffects', 'LED'),
             migrateItem('ledBrightness', 'LED'),
-            migrateItem('ledColorNodes', 'LED'),
-            migrateItem('ledColorFreqs', 'LED'),
             migrateItem('startThreshLowerAmount', 'TIMING'),
             migrateItem('startThreshLowerDuration', 'TIMING'),
             migrateItem('calibrationMode', 'TIMING'),
@@ -159,15 +158,61 @@ class Config:
             migrateItem('actions', 'USER'),
         ]
 
+        self._restart_required_keys = {
+            'LED': [
+                'LED_COUNT',
+                'LED_GPIO',
+                'LED_FREQ_HZ',
+                'LED_DMA',
+                'LED_INVERT',
+                'LED_CHANNEL',
+                'LED_STRIP',
+                'LED_ROWS',
+                'SERIAL_CTRLR_PORT',
+                'SERIAL_CTRLR_BAUD'
+            ],
+            'HARDWARE': [
+                'I2C_BUS'
+            ],
+            'GENERAL' : [
+                'HTTP_PORT',
+                'SECONDARIES',
+                'CORS_ALLOWED_HOSTS',
+                'FORCE_S32_BPILL_FLAG',
+                'SHUTDOWN_BUTTON_GPIOPIN',
+                'SHUTDOWN_BUTTON_DELAYMS',
+                'DB_AUTOBKP_NUM_KEEP',
+                'SERIAL_PORTS',
+            ],
+            'SECRETS': [
+                'ADMIN_USERNAME',
+                'ADMIN_PASSWORD'
+            ],
+            'LOGGING': [
+                'CONSOLE_LEVEL',
+                'SYSLOG_LEVEL',
+                'FILELOG_LEVEL',
+                'FILELOG_NUM_KEEP',
+                'CONSOLE_STREAM'
+            ],
+            'PLUGINS': [
+                'REMOTE_DATA_URI',
+                'REMOTE_CATEGORIES_URI'
+            ],
+            'SENSORS': []
+        }
+
         # override defaults above with config from file
         try:
             with open(self.filename, 'r') as f:
-                ExternalConfig = json.load(f)
+                external_config = json.load(f)
 
-            for key in ExternalConfig.keys():
-                self.migrate_legacy_config_early(key, ExternalConfig[key])
+            self.migrate_legacy_config_early(external_config)
+            for key in external_config.keys():
                 if key in self.config:
-                    self.config[key].update(ExternalConfig[key])
+                    self.config[key].update(external_config[key])
+                else:
+                    self.config.update({key:external_config[key]})
 
             self.config_file_status = 1
             self.InitResultStr = "Using configuration file '{0}'".format(self.filename)
@@ -183,12 +228,13 @@ class Config:
 
         self.check_backup_config_file()
         self.migrate_legacy_config()
-        self.save_config()
 
-    def migrate_legacy_config_early(self, key, value):
-        if key == 'SERIAL_PORTS':
-            if not self.config['GENERAL'].get('SERIAL_PORTS'):
-                self.config['GENERAL']['SERIAL_PORTS'] = value
+    def migrate_legacy_config_early(self, external_config):
+        for key in list(external_config.keys()):
+            if key == 'SERIAL_PORTS':
+                if not self.config['GENERAL'].get('SERIAL_PORTS'):
+                    self.config['GENERAL']['SERIAL_PORTS'] = external_config[key]
+                del external_config[key]
 
     def migrate_legacy_config(self):
         if 'SLAVES' in self.config['GENERAL']:
@@ -222,7 +268,7 @@ class Config:
     def migrate_legacy_db_keys(self):
         for item in self.migrations:
             if self._racecontext.rhdata.get_option(item.source):
-                self._racecontext.serverconfig.set_item(
+                self.set_item(
                     item.section,
                     item.dest,
                     self._racecontext.rhdata.get_option(item.source)
@@ -235,6 +281,26 @@ class Config:
     def logInitResultMessage(self):
         if self.InitResultStr:
             logger.log(self.InitResultLogLevel, self.InitResultStr)
+
+    def flag_restart_key(self, section, key):
+        if section not in self._restart_required_keys:
+            self._restart_required_keys[section] = []
+        if key not in self._restart_required_keys[section]:
+            self._restart_required_keys[section].append(key)
+
+    def check_restart_flag(self, section, key=None):
+        if key:
+            try:
+                if key in self._restart_required_keys[section]:
+                    self._racecontext.serverstate.set_restart_required()
+            except:
+                pass
+        else:
+            if section in self._restart_required_keys:
+                self._racecontext.serverstate.set_restart_required()
+
+    def item_exists(self, section, key):
+        return True if section in self.config and key in self.config[section] else False
 
     def get_item(self, section, key):
         try:
@@ -261,10 +327,37 @@ class Config:
     def set_item(self, section, key, value):
         try:
             self.config[section][key] = value
+            self.check_restart_flag(section, key)
             self.save_config()
         except:
             return False
         return True
+
+    def set_section(self, section, value):
+        try:
+            self.config[section] = value
+            self.check_restart_flag(section)
+            self.save_config()
+        except:
+            return False
+        return True
+
+    def register_section(self, section):
+        self.config_sections[section] = {}
+        self.config[section] = {}
+
+    def clean_config(self):
+        if self.config.keys() == self.config_sections.keys():
+            return
+
+        logger.info("Change in registered configuration sections detected")
+        self.backup_config_file()
+
+        config_cleaned = {}
+        for item in self.config_sections:
+            if item in self.config:
+                config_cleaned[item] = copy.deepcopy(self.config[item])
+        self.config = config_cleaned
 
     def save_config(self):
         self.config['GENERAL']['LAST_MODIFIED_TIME'] = int(time.time())
@@ -279,13 +372,23 @@ class Config:
                 last_modified_time = self.get_item_int('GENERAL', 'LAST_MODIFIED_TIME')
                 file_modified_time = int(os.path.getmtime(self.filename))
                 if file_modified_time > 0 and abs(file_modified_time - last_modified_time) > 5:
-                    time_str = datetime.fromtimestamp(file_modified_time).strftime('%Y%m%d_%H%M%S')
-                    (fname_str, fext_str) = os.path.splitext(self.filename)
-                    bkp_file_name = "{}_bkp_{}{}".format(fname_str, time_str, fext_str)
-                    logger.info("Making backup of configuration file, name: {}".format(bkp_file_name))
-                    shutil.copy2(self.filename, bkp_file_name)
+                    logger.info("External configuration file modification detected")
+                    self.backup_config_file()
         except Exception as ex:
-                logger.warning("Error in 'check_backup_config_file()':  {}".format(ex))
+            logger.warning("Error in 'check_backup_config_file()':  {}".format(ex))
+
+    def backup_config_file(self):
+        if not self._backup_run:
+            try:
+                file_modified_time = int(os.path.getmtime(self.filename))
+                time_str = datetime.fromtimestamp(file_modified_time).strftime('%Y%m%d_%H%M%S')
+                (fname_str, fext_str) = os.path.splitext(self.filename)
+                bkp_file_name = "{}_bkp_{}{}".format(fname_str, time_str, fext_str)
+                logger.info("Making backup of configuration file, name: {}".format(bkp_file_name))
+                shutil.copy2(self.filename, bkp_file_name)
+                self._backup_run = True
+            except Exception as ex:
+                logger.warning("Error in 'backup_config_file()':  {}".format(ex))
 
     def get_sharable_config(self):
         sharable_config = copy.deepcopy(self.config)

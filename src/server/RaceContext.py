@@ -5,6 +5,7 @@ import Config
 import RHRace
 import RHTimeFns
 import logging
+from eventmanager import Evt
 from led_event_manager import NoLEDManager
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class RaceContext():
         self.heat_generate_manager = None
         self.raceclass_rank_manager = None
         self.race_points_manager = None
+        self.plugin_manager = None
 
         self.serverconfig = Config.Config(self)
         self.serverstate = ServerState(self)
@@ -226,6 +228,8 @@ class ServerState:
     _mtonic_to_epoch_millis_offset = None
     _program_start_epoch_formatted = None
     _program_start_time_formatted = None
+    # token used for tracking server restart from frontend
+    _server_instance_token = None
 
     @property
     def program_start_epoch_time(self):
@@ -244,6 +248,14 @@ class ServerState:
     @program_start_mtonic.setter
     def program_start_mtonic(self, value):
         self._program_start_mtonic = value
+
+    @property
+    def server_instance_token(self):
+        return self._server_instance_token
+
+    @server_instance_token.setter
+    def server_instance_token(self, value):
+        self._server_instance_token = value
 
     @property
     def mtonic_to_epoch_millis_offset(self):
@@ -290,3 +302,12 @@ class ServerState:
 
     # enable processing of Evt.ALL events when Evt.HEARTBEAT is triggered
     enable_heartbeat_event = False
+
+    # flag if restart is needed (after plugin install, etc.)
+    restart_required = False
+
+    def set_restart_required(self):
+        if not self.restart_required:
+            self.restart_required = True
+            self._racecontext.events.trigger(Evt.RESTART_REQUIRED, {})
+            self._racecontext.rhui.emit_restart_required()

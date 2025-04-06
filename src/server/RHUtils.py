@@ -83,6 +83,44 @@ def format_phonetic_time_to_str(millis, timeformat='{m} {s}.{d}'):
             timeformat = match.group(1)+match.group(2)+'{m}'+match.group(3)+match.group(4)
         return timeformat.format(m=str(minutes), s=str(seconds), d=str(tenths))
 
+# Formats the given seconds value to a time-duration string in the form MM:SS:mmm
+def format_secs_to_duration_str(secs_val):
+    total_ms = int(secs_val * 1000 + 0.5)  # round to nearest ms
+    total_secs = total_ms // 1000
+    total_int_secs = int(total_secs)
+    mins_val = int(total_int_secs // 60)
+    mins_str = str(mins_val)
+    secs_str = str(int(total_int_secs % 60))
+    ms_str = str(int(total_ms % 1000)).zfill(3)
+    if ms_str[-1] == '0':  # remove trailing zeros (if not in tenths position)
+        ms_str = ms_str[0:-1]
+        if ms_str[-1] == '0':
+            ms_str = ms_str[0:-1]
+    return "{}:{}.{}".format(mins_str, secs_str.zfill(2), ms_str)
+
+# Parses the given time-duration string (in the form MM:SS:mmm) to seconds; returns None if parsing error
+def parse_duration_str_to_secs(dur_str):
+    try:
+        dur_str = str(dur_str)
+        if dur_str:
+            p = dur_str.rfind(':')
+            secs_str = dur_str[p+1:]
+            if p <= 0:
+                secs_val = float(secs_str)
+            else:
+                rem_str = dur_str[0:p]
+                p = rem_str.rfind(':')
+                if p <= 0:
+                    secs_val = float(secs_str) + (int(rem_str[p+1:]) * 60)
+                else:
+                    secs_val = float(secs_str) + (int(rem_str[p+1:]) * 60) + (int(rem_str[0:p]) * 3600)
+            total_ms = int(secs_val * 1000 + 0.5)  # round to nearest ms
+            return round(total_ms / 1000, 3)
+    except:
+        pass
+    return None
+
+
 # Previous (now deprecated) versions of time-formatting functions:
 
 def time_format(millis, *args, **kwargs):
@@ -447,3 +485,61 @@ def getFnTracebackMsgStr(fnNameStr):
         return "Unable to find given function name in traceback"
     except Exception as ex:
         return "Error parsing traceback in 'getFnTracebackMsgStr()':  {}".format(ex)
+
+def migrate_data_dir(source_dir_path, dest_dir_path):
+    files = [
+        'config.json',
+        'database.db',
+        'logs',
+        'db_bkp',
+        'plugins'
+    ]
+    exceptions = [
+        'plugins/rh_actions_builtin',
+        'plugins/rh_class_rank_best_x_rounds',
+        'plugins/rh_class_rank_cumulative_points',
+        'plugins/rh_class_rank_heat_pos',
+        'plugins/rh_connector_trackside',
+        'plugins/rh_data_export_csv',
+        'plugins/rh_data_export_json',
+        'plugins/rh_data_import_json',
+        'plugins/rh_heatgenerator_ladder',
+        'plugins/rh_heatgenerator_standard',
+        'plugins/rh_led_handler_bitmap',
+        'plugins/rh_led_handler_character',
+        'plugins/rh_led_handler_graph',
+        'plugins/rh_led_handler_strip',
+        'plugins/rh_points_by_position'
+    ]
+    if not os.path.isdir(source_dir_path):
+        return False
+
+    try:
+        os.makedirs(dest_dir_path, exist_ok=True)
+        for file_name in files:
+            source_file_path = os.path.join(source_dir_path, file_name)
+            dest_file_path = os.path.join(dest_dir_path, file_name)
+            if os.path.isdir(source_file_path):
+                os.mkdir(dest_file_path)
+                for subdir_file_name in os.listdir(source_file_path):
+                    subdir_file_path = os.path.join(source_file_path, subdir_file_name)
+                    if f'{file_name}/{subdir_file_name}' not in exceptions:
+                        os.rename(subdir_file_path, os.path.join(dest_file_path, subdir_file_name))
+            elif os.path.isfile(source_file_path):
+                os.rename(source_file_path, dest_file_path)
+
+        rh_user_dir = os.path.join(source_dir_path, 'static/user')
+        if os.path.isdir(rh_user_dir):
+            os.rename(rh_user_dir, os.path.join(dest_dir_path, 'shared'))
+    except Exception as ex:
+        return ex
+    return True
+
+def write_datapath_file(data_dir, program_dir):
+    try:
+        with open(os.path.join(program_dir, 'datapath.ini'), 'w') as f:
+            f.write(data_dir)
+    except Exception as ex:
+        logger.error(f"Unable to write datapath.ini: {ex}")
+        return False
+    return True

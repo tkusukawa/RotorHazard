@@ -738,6 +738,24 @@ class DatabaseAPI():
         return self._racecontext.rhdata.get_savedRaceMetas_by_raceClass(raceclass_id)
 
     @callWithDatabaseWrapper
+    def race_add(self, round_id, heat_id, class_id, format_id, start_time, start_time_formatted):
+        data = {}
+
+        for name, value in [
+            ('round_id', round_id),
+            ('heat_id', heat_id),
+            ('class_id', class_id),
+            ('format_id', format_id),
+            ('start_time', start_time),
+            ('start_time_formatted', start_time_formatted)
+            ]:
+            if value is not None:
+                data[name] = value
+
+        if data:
+            return self._racecontext.rhdata.add_savedRaceMeta(data)
+
+    @callWithDatabaseWrapper
     def race_alter(self, race_id, attributes=None):
         data = {}
 
@@ -770,6 +788,26 @@ class DatabaseAPI():
     @callWithDatabaseWrapper
     def pilotruns_by_race(self, race_id):
         return self._racecontext.rhdata.get_savedPilotRaces_by_savedRaceMeta(race_id)
+
+    def pilotrun_add(self, race_id, node_index, pilot_id, history_values, history_times, enter_at, exit_at, frequency, laps):
+        data = {}
+
+        for name, value in [
+            ('race_id', race_id),
+            ('pilot_id', pilot_id),
+            ('history_values', history_values),
+            ('history_times', history_times),
+            ('enter_at', enter_at),
+            ('exit_at', exit_at),
+            ('frequency', frequency),
+            ('laps', laps),
+            ]:
+            if value is not None:
+                data[name] = value
+
+        if data:
+            return self._racecontext.rhdata.add_race_data({node_index: data})
+
 
     # Race -> Pilot Run -> Laps
 
@@ -1060,6 +1098,14 @@ class RaceAPI():
         return self._racecontext.race.race_status
 
     @property
+    def status_message(self):
+        return self._racecontext.race.status_message
+
+    @property
+    def phonetic_status_msg(self):
+        return self._racecontext.race.phonetic_status_msg
+
+    @property
     def stage_time_internal(self):
         return self._racecontext.race.stage_time_monotonic
 
@@ -1090,11 +1136,29 @@ class RaceAPI():
 
     @property
     def laps_raw(self):
-        return dataclasses.asdict(self._racecontext.race.node_laps)
+        payload = []
+        for node_idx, laps in self._racecontext.race.node_laps.items():
+            if len(laps):
+                laps_list = []
+                for lap in laps:
+                    laps_list.append(dataclasses.asdict(lap))
+                payload.append(laps_list)
+            else:
+                payload.append([])
+        return payload
 
     @property
     def laps_active_raw(self, filter_late_laps=False):
-        return self._racecontext.race.get_active_laps(filter_late_laps)
+        payload = []
+        for node_idx, laps in self._racecontext.race.get_active_laps(filter_late_laps).items():
+            if len(laps):
+                laps_list = []
+                for lap in laps:
+                    laps_list.append(dataclasses.asdict(lap))
+                payload.append(laps_list)
+            else:
+                payload.append([])
+        return payload
 
     def lap_add(self, seat_index, timestamp):
         seat = self._racecontext.interface.nodes[seat_index]
@@ -1109,6 +1173,11 @@ class RaceAPI():
     @callWithDatabaseWrapper
     def team_results(self):
         return self._racecontext.race.get_team_results()
+
+    @property
+    @callWithDatabaseWrapper
+    def coop_results(self):
+        return self._racecontext.race.get_coop_results()
 
     @property
     def win_status(self):
@@ -1211,19 +1280,33 @@ class ServerConfigAPI():
     def __init__(self, race_context):
         self._racecontext = race_context
 
+    def register_section(self, section):
+        return self._racecontext.serverconfig.register_section(section)
+
     @property
-    def config(self):
+    def get_all(self):
         return copy.deepcopy(self._racecontext.serverconfig.config)
 
-    def get_item(self, section, item, as_int=False):
+    def get(self, section, name, as_int=False):
         if as_int:
-            return self._racecontext.serverconfig.get_item_int(section, item)
+            return self._racecontext.serverconfig.get_item_int(section, name)
         else:
-            return self._racecontext.serverconfig.get_item(section, item)
+            return self._racecontext.serverconfig.get_item(section, name)
 
+    def set(self, section, name, value):
+        return self._racecontext.serverconfig.set_item(section, name, value)
 
-    def set_item(self, section, item, value):
-        return self._racecontext.serverconfig.set_item(section, item, value)
+    def config(self):
+        # Deprecated. Retain for compatibility in v4. Changed before documented.
+        return self.get_all()
+
+    def get_item(self, section, name, as_int=False):
+        # Deprecated. Retain for compatibility in v4. Was used internally but changed before documented.
+        return self.get(section, name, as_int)
+
+    def set_item(self, section, name, value):
+        # Deprecated. Retain for compatibility in v4. Was used internally but changed before documented.
+        return self.set(section, name, value)
 
 
 #
