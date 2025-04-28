@@ -1542,20 +1542,27 @@ class RHUI():
         else:
             self._socket.emit('current_heat', emit_payload)
 
-    def emit_phonetic_data(self, pilot_id, lap_id, lap_time, team_phonetic, leader_flag=False, \
-                           node_finished=False, node_index=None, team_short_phonetic=None, **params):
+    def emit_phonetic_data(self, pilot_id, lap_id, lap_time, lap_time_stamp, team_phonetic, leader_flag=False, \
+                           node_finished=False, pilot_done=False, remain_time=1000000, \
+                           node_index=None, team_short_phonetic=None, **params):
         '''Emits phonetic data.'''
         raw_time = lap_time
         phonetic_time = RHUtils.format_phonetic_time_to_str(lap_time, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
+        phonetic_time_stamp = RHUtils.format_phonetic_time_to_str(lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
+        phonetic_remain = RHUtils.format_phonetic_time_to_str(remain_time, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
 
         emit_payload = {
             'lap': lap_id,
             'raw_time': raw_time,
             'phonetic': phonetic_time,
+            'phonetic_stamp': phonetic_time_stamp,
             'team_phonetic' : team_phonetic,
             'team_short_phonetic': team_short_phonetic,
             'leader_flag' : leader_flag,
             'node_finished': node_finished,
+            'pilot_done': pilot_done,
+            'remain_time': remain_time,
+            'phonetic_remain': phonetic_remain,
         }
 
         pilot = self._racecontext.rhdata.get_pilot(pilot_id)

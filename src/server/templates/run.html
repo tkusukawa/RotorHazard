@@ -987,7 +987,7 @@
 
 		socket.on('phonetic_data', function (msg) {
 			if (!msg.node_finished || rotorhazard.voice_if_node_finished) {
-				if (rotorhazard.min_lap * 1000 < msg.raw_time) {
+				if (rotorhazard.min_lap * 1000 < msg.raw_time || msg.lap == 0) {
 					var ttstext = '';
 	
 					if (rotorhazard.voice_callsign == 1 ||
@@ -1001,7 +1001,7 @@
 					if (rotorhazard.voice_lap_count == 1 ||
 								(rotorhazard.voice_lap_count == 2 && (!msg.team_phonetic))) {
 						if (ttstext.length > 0)
-							ttstext += ", ";
+							ttstext += " ";
 						if (msg.lap == 0) {
 							ttstext += __l('Start');
 						} else {
@@ -1014,6 +1014,13 @@
 						if (ttstext.length > 0)
 							ttstext += ", ";
 						ttstext += msg.phonetic;
+						if (msg.pilot_done) {
+							ttstext += ", Goal";
+							if (!rotorhazard.event.race_status.unlimited_time)
+								ttstext += ", " + msg.phonetic_stamp;
+						} else if (msg.remain_time <= 30000) {
+							ttstext += "残り" + msg.phonetic_remain;
+						}
 					}
 	
 					if (msg.team_phonetic && rotorhazard.voice_team_lap_count != 0) {

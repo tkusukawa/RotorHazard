@@ -1374,7 +1374,7 @@ rotorhazard.timer.race.callbacks.step = function(timer){
 						play_mp3_beep(sound_stage, rotorhazard.tone_volume);
 					}
 					else {
-						play_beep(100, 440, rotorhazard.tone_volume, 'triangle');
+						//play_beep(100, 440, rotorhazard.tone_volume, 'triangle');
 					}
 				}
 			} else if (timer.time_tenths == 100) { // announce 10s only when counting down
@@ -1414,7 +1414,7 @@ rotorhazard.timer.race.callbacks.expire = function(timer){
 		play_mp3_beep(sound_buzzer, rotorhazard.tone_volume);
 	}
 	else {
-		play_beep(700, 880, rotorhazard.tone_volume, 'triangle', 0.25);
+		//play_beep(700, 880, rotorhazard.tone_volume, 'triangle', 0.25);
 	}
 	$('.time-display').html(timer.renderHTML());
 }

@@ -775,6 +775,9 @@ class RHRace():
                                 # New lap time is the difference between the current time stamp and the last
                                 lap_time = lap_time_stamp - last_lap_time_stamp
 
+                                first_lap_time_stamp = self.get_active_laps(True)[node.index][0].lap_time_stamp
+                                lap_time_stamp -= first_lap_time_stamp
+
                             else: # No previous laps, this is the first pass
                                 # Lap zero represents the time from the launch pad to flying through the gate
                                 lap_time = lap_time_stamp
@@ -801,8 +804,9 @@ class RHRace():
                             lap_ok_flag = True
                             lap_late_flag = False
                             pilot_done_flag = False
+                            remain_time = 1000000
                             if lap_number != 0:
-                                if lap_time > 90000:
+                                if race_format.unlimited_time != 0 and lap_time > 60000:
                                     lap_number = 0
                                 else:
                                     lap_number = self.get_active_laps(True)[node.index][-1].lap_number + 1
@@ -838,6 +842,8 @@ class RHRace():
                                     node_finished_flag = self.get_node_finished_flag(node.index)
                                     if not node_finished_flag:
                                         # set next node race status as 'finished' if timer mode is count-down race and race-time has expired
+                                        if race_format.unlimited_time == 0:
+                                            remain_time = race_format.race_time_sec * 1000 - lap_time_stamp
                                         if race_format.unlimited_time == 0 and lap_time_stamp > race_format.race_time_sec * 1000:
                                             pilot_done_flag = True
                                         elif self.format.win_condition == WinCondition.FIRST_TO_LAP_X:
@@ -951,10 +957,11 @@ class RHRace():
                                             team_phonetic = self.__("Team") + " " + team_name + ", " + self.__("Lap") + \
                                                             " " + str(team_laps)
                                             team_short_phonetic = self.__("Lap") + " " + str(team_laps)
-                                        self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, team_phonetic, \
+                                        self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
+                                                        lap_time_stamp, team_phonetic, \
                                                         (check_leader and \
                                                          team_name == Results.get_leading_team_name(self.team_results)), \
-                                                        node_finished_flag, node.index)
+                                                        node_finished_flag, pilot_done_flag, remain_time, node.index)
                                     elif race_format.team_racing_mode == RacingMode.COOP_ENABLED:
                                         coop_laps = self.team_results['by_race_time'][0]['laps']
                                         if not lap_late_flag:
@@ -968,15 +975,19 @@ class RHRace():
                                             team_phonetic =  self.__("Co-op") + " " +  self.__("Lap") + " " + str(coop_laps)
                                             team_short_phonetic = self.__("Lap") + " " + str(coop_laps)
                                         self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
-                                                            team_phonetic, False, node_finished_flag, node.index, \
+                                                            lap_time_stamp, \
+                                                            team_phonetic, False, node_finished_flag, \
+                                                            pilot_done_flag, remain_time, node.index, \
                                                             team_short_phonetic=team_short_phonetic)
                                     else:
                                         if check_leader:
                                             leader_pilot_id = Results.get_leading_pilot_id(self, self._racecontext.interface, True)
                                         else:
                                             leader_pilot_id = RHUtils.PILOT_ID_NONE
-                                        self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, None, \
-                                                        (pilot_id == leader_pilot_id), node_finished_flag, node.index)
+                                        self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
+                                                        lap_time_stamp, None, \
+                                                        (pilot_id == leader_pilot_id), node_finished_flag, \
+                                                        pilot_done_flag, remain_time, node.index)
                                         if leader_pilot_id != RHUtils.PILOT_ID_NONE:
                                             # if new leading pilot was not called out above (different pilot) then call out now
                                             if leader_pilot_id != pilot_id:
