@@ -765,6 +765,7 @@ class RHRace():
 
                             lap_time_stamp = (lap_timestamp_absolute - self.start_time_monotonic)
                             lap_time_stamp *= 1000 # store as milliseconds
+                            lap_time_stamp_from_first = 0
 
                             lap_number = len(self.get_active_laps()[node.index])
 
@@ -775,8 +776,7 @@ class RHRace():
                                 # New lap time is the difference between the current time stamp and the last
                                 lap_time = lap_time_stamp - last_lap_time_stamp
 
-                                first_lap_time_stamp = self.get_active_laps(True)[node.index][0].lap_time_stamp
-                                lap_time_stamp -= first_lap_time_stamp
+                                lap_time_stamp_from_first = lap_time_stamp - self.get_active_laps(True)[node.index][0].lap_time_stamp
 
                             else: # No previous laps, this is the first pass
                                 # Lap zero represents the time from the launch pad to flying through the gate
@@ -843,8 +843,8 @@ class RHRace():
                                     if not node_finished_flag:
                                         # set next node race status as 'finished' if timer mode is count-down race and race-time has expired
                                         if race_format.unlimited_time == 0:
-                                            remain_time = race_format.race_time_sec * 1000 - lap_time_stamp
-                                        if race_format.unlimited_time == 0 and lap_time_stamp > race_format.race_time_sec * 1000:
+                                            remain_time = race_format.race_time_sec * 1000 - lap_time_stamp_from_first
+                                        if race_format.unlimited_time == 0 and remain_time < 0:
                                             pilot_done_flag = True
                                         elif self.format.win_condition == WinCondition.FIRST_TO_LAP_X:
                                             if race_format.start_behavior != StartBehavior.FIRST_LAP:
@@ -958,7 +958,7 @@ class RHRace():
                                                             " " + str(team_laps)
                                             team_short_phonetic = self.__("Lap") + " " + str(team_laps)
                                         self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
-                                                        lap_time_stamp, team_phonetic, \
+                                                        lap_time_stamp_from_first, team_phonetic, \
                                                         (check_leader and \
                                                          team_name == Results.get_leading_team_name(self.team_results)), \
                                                         node_finished_flag, pilot_done_flag, remain_time, node.index)
@@ -975,7 +975,7 @@ class RHRace():
                                             team_phonetic =  self.__("Co-op") + " " +  self.__("Lap") + " " + str(coop_laps)
                                             team_short_phonetic = self.__("Lap") + " " + str(coop_laps)
                                         self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
-                                                            lap_time_stamp, \
+                                                            lap_time_stamp_from_first, \
                                                             team_phonetic, False, node_finished_flag, \
                                                             pilot_done_flag, remain_time, node.index, \
                                                             team_short_phonetic=team_short_phonetic)
@@ -985,7 +985,7 @@ class RHRace():
                                         else:
                                             leader_pilot_id = RHUtils.PILOT_ID_NONE
                                         self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
-                                                        lap_time_stamp, None, \
+                                                        lap_time_stamp_from_first, None, \
                                                         (pilot_id == leader_pilot_id), node_finished_flag, \
                                                         pilot_done_flag, remain_time, node.index)
                                         if leader_pilot_id != RHUtils.PILOT_ID_NONE:
