@@ -377,18 +377,7 @@
 								local_prepend = $('<span class="from_start">');
 
 								if(rotorhazard.display_time_first_pass) {
-									if(rotorhazard.display_laps_reversed) {
-										if(curnode_data.laps.length > 0) {
-											ts_val = lap.lap_time_stamp - curnode_data.laps[curnode_data.laps.length-1].lap_time_stamp;
-										}
-										else {
-											ts_val = 0;
-										}
-									}
-									else {
-										ts_val = lap.lap_time_stamp - curnode_data.laps[0].lap_time_stamp;
-									}
-									local_prepend.text(formatTimeMillis(ts_val, {{ getConfig('UI', 'timeFormat')|tojson }}));
+									local_prepend.text(formatTimeMillis(lap.lap_time_stamp_relative, {{ getConfig('UI', 'timeFormat')|tojson }}));
 									if(rotorhazard.display_time_start){
 										local_prepend.append(" / ");
 									}

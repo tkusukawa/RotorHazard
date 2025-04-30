@@ -29,6 +29,7 @@ class Crossing(dict):
     pilot_id: int = None
     lap_number: int = 0
     lap_time_stamp: int = None
+    lap_time_stamp_relative: int = None
     lap_time: int = None
     lap_time_formatted: str = None
     source: str = None
@@ -113,6 +114,7 @@ class RHRace():
         Lap Object (dict) for node_laps:
             lap_number
             lap_time_stamp
+            lap_time_stamp_relarive
             lap_time
             lap_time_formatted
             source
@@ -775,10 +777,22 @@ class RHRace():
                                 # New lap time is the difference between the current time stamp and the last
                                 lap_time = lap_time_stamp - last_lap_time_stamp
 
+                                if race_format.unlimited_time and lap_time > 60000:
+                                    lap_number = 0
+                                    lap_time_stamp_relative = 0
+                                    last_lap_time_stamp_relative = 0
+                                else:
+                                    lap_number = self.get_active_laps(True)[node.index][-1].lap_number + 1
+                                    first_lap_time_stamp = self.get_active_laps(True)[node.index][lap_number * -1].lap_time_stamp
+                                    lap_time_stamp_relative = lap_time_stamp - first_lap_time_stamp
+                                    last_lap_time_stamp_relative = last_lap_time_stamp - first_lap_time_stamp
+
                             else: # No previous laps, this is the first pass
                                 # Lap zero represents the time from the launch pad to flying through the gate
                                 lap_time = lap_time_stamp
                                 node.first_cross_flag = True  # indicate first crossing completed
+                                lap_time_stamp_relative = 0
+                                last_lap_time_stamp_relative = 0
 
                             if race_format is self._racecontext.serverstate.secondary_race_format:
                                 min_lap = 0  # don't enforce min-lap time if running as secondary timer
@@ -801,11 +815,7 @@ class RHRace():
                             lap_ok_flag = True
                             lap_late_flag = False
                             pilot_done_flag = False
-                            if lap_number != 0:
-                                if lap_time > 90000:
-                                    lap_number = 0
-                                else:
-                                    lap_number = self.get_active_laps(True)[node.index][-1].lap_number + 1
+
                             if lap_number != 0:  # if initial lap then always accept and don't check lap time; else:
                                 if lap_time <= 0: # if lap is non-sequential
                                     logger.info('Ignoring lap prior to already recorded lap: Node={}, lap={}, lapTime={}, sinceStart={}, source={}, pilot: {}' \
@@ -896,6 +906,7 @@ class RHRace():
                                 lap_data = Crossing()
                                 lap_data.lap_number = lap_number
                                 lap_data.lap_time_stamp = lap_time_stamp
+                                lap_data.lap_time_stamp_relative = lap_time_stamp_relative
                                 lap_data.lap_time = lap_time
                                 lap_data.lap_time_formatted = lap_time_fmtstr
                                 lap_data.source = source
@@ -951,7 +962,8 @@ class RHRace():
                                             team_phonetic = self.__("Team") + " " + team_name + ", " + self.__("Lap") + \
                                                             " " + str(team_laps)
                                             team_short_phonetic = self.__("Lap") + " " + str(team_laps)
-                                        self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, team_phonetic, \
+                                        self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
+                                                        lap_time_stamp_relative, last_lap_time_stamp_relative, team_phonetic, \
                                                         (check_leader and \
                                                          team_name == Results.get_leading_team_name(self.team_results)), \
                                                         node_finished_flag, node.index)
@@ -968,6 +980,7 @@ class RHRace():
                                             team_phonetic =  self.__("Co-op") + " " +  self.__("Lap") + " " + str(coop_laps)
                                             team_short_phonetic = self.__("Lap") + " " + str(coop_laps)
                                         self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
+                                                            lap_time_stamp_relative, last_lap_time_stamp_relative, \
                                                             team_phonetic, False, node_finished_flag, node.index, \
                                                             team_short_phonetic=team_short_phonetic)
                                     else:
@@ -975,7 +988,8 @@ class RHRace():
                                             leader_pilot_id = Results.get_leading_pilot_id(self, self._racecontext.interface, True)
                                         else:
                                             leader_pilot_id = RHUtils.PILOT_ID_NONE
-                                        self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, None, \
+                                        self._racecontext.rhui.emit_phonetic_data(pilot_id, lap_id, lap_time, \
+                                                        lap_time_stamp_relative, last_lap_time_stamp_relative, None, \
                                                         (pilot_id == leader_pilot_id), node_finished_flag, node.index)
                                         if leader_pilot_id != RHUtils.PILOT_ID_NONE:
                                             # if new leading pilot was not called out above (different pilot) then call out now
@@ -1002,6 +1016,7 @@ class RHRace():
                                 lap_data = Crossing()
                                 lap_data.lap_number = lap_number
                                 lap_data.lap_time_stamp = lap_time_stamp
+                                lap_data.lap_time_stamp_relative = lap_time_stamp
                                 lap_data.lap_time = lap_time
                                 lap_data.lap_time_formatted = lap_time_fmtstr
                                 lap_data.source = source
@@ -1572,6 +1587,7 @@ class RHRace():
                         'lap_raw': lap.lap_time,
                         'lap_time': lap.lap_time_formatted,
                         'lap_time_stamp': lap.lap_time_stamp,
+                        'lap_time_stamp_relative': lap.lap_time_stamp_relative,
                         'splits': splits,
                         'late_lap': lap.late_lap
                     })
