@@ -1548,7 +1548,7 @@ class RHUI():
         raw_time = lap_time
         phonetic_time = RHUtils.format_phonetic_time_to_str(lap_time, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
 
-        if lap_time_stamp > 60000 and lap_time_stamp <= 90000:
+        if lap_time_stamp + (lap_time * 2) > 90000:
             phonetic_remain = RHUtils.format_phonetic_time_to_str(90000 - lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
         else:
             phonetic_remain = ""
