@@ -1548,15 +1548,15 @@ class RHUI():
         raw_time = lap_time
         phonetic_time = RHUtils.format_phonetic_time_to_str(lap_time, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
 
-        if lap_time_stamp != 0 and lap_time_stamp + (lap_time * 2) > 90000:
-            phonetic_remain = RHUtils.format_phonetic_time_to_str(90000 - lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
-        else:
-            phonetic_remain = ""
-
-        if lap_time_stamp > 90000 and last_lap_time_stamp <= 90000:
-            phonetic_goal = RHUtils.format_phonetic_time_to_str(lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
-        else:
-            phonetic_goal = ""
+        phonetic_remain = ""
+        phonetic_goal = ""
+        if lap_time_stamp != 0:
+            if lap_time_stamp > 90000:
+                if last_lap_time_stamp <= 90000:
+                    phonetic_goal = RHUtils.format_phonetic_time_to_str(lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
+            else:
+                if lap_time_stamp + (lap_time * 2) >= 90000:
+                    phonetic_remain = RHUtils.format_phonetic_time_to_str(90000 - lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
 
         emit_payload = {
             'lap': lap_id,
