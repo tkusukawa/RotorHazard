@@ -849,9 +849,10 @@ class RHRace():
                                     node_finished_flag = self.get_node_finished_flag(node.index)
                                     if not node_finished_flag:
                                         # set next node race status as 'finished' if timer mode is count-down race and race-time has expired
-                                        if race_format.unlimited_time == 0 and lap_time_stamp > race_format.race_time_sec * 1000:
-                                            pilot_done_flag = True
-                                            goal_time = lap_time_stamp
+                                        if race_format.unlimited_time == 0:
+                                            if lap_time_stamp > race_format.race_time_sec * 1000:
+                                                pilot_done_flag = True
+                                                goal_time = lap_time_stamp
                                         elif self.format.win_condition == WinCondition.FIRST_TO_LAP_X:
                                             if race_format.start_behavior != StartBehavior.FIRST_LAP:
                                                 if lap_number >= race_format.number_laps_win:
