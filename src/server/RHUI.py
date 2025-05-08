@@ -1542,7 +1542,7 @@ class RHUI():
         else:
             self._socket.emit('current_heat', emit_payload)
 
-    def emit_phonetic_data(self, pilot_id, lap_id, lap_time, lap_time_stamp, last_lap_time_stamp, team_phonetic, leader_flag=False, \
+    def emit_phonetic_data(self, pilot_id, lap_id, lap_time, lap_time_stamp, remain_time, goal_time, team_phonetic, leader_flag=False, \
                            node_finished=False, node_index=None, team_short_phonetic=None, **params):
         '''Emits phonetic data.'''
         raw_time = lap_time
@@ -1551,12 +1551,10 @@ class RHUI():
         phonetic_remain = ""
         phonetic_goal = ""
         if lap_time_stamp != 0:
-            if lap_time_stamp > 90000:
-                if last_lap_time_stamp <= 90000:
-                    phonetic_goal = RHUtils.format_phonetic_time_to_str(lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
-            else:
-                if lap_time_stamp + (lap_time * 2) >= 90000:
-                    phonetic_remain = RHUtils.format_phonetic_time_to_str(90000 - lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
+            if remain_time:
+                phonetic_remain = RHUtils.format_phonetic_time_to_str(remain_time, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
+            if goal_time:
+                phonetic_goal = RHUtils.format_phonetic_time_to_str(lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
 
         emit_payload = {
             'lap': lap_id,
