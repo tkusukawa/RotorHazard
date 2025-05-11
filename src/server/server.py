@@ -3547,7 +3547,7 @@ def rh_program_initialize(reg_endpoints_flag=True):
             local_loaded = False
         else:
             local_loaded = True
-
+        '''
         try:
             RaceContext.plugin_manager.load_remote_plugin_data()
         except requests.Timeout:
@@ -3555,6 +3555,8 @@ def rh_program_initialize(reg_endpoints_flag=True):
             remote_loaded = False
         else:
             remote_loaded = True
+        '''
+        remote_loaded = False
 
         if local_loaded and remote_loaded:
             RaceContext.plugin_manager.apply_update_statuses()
