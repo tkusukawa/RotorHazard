@@ -987,7 +987,7 @@
 							ttstext = msg.pilot;
 					}
 	
-					if (msg.phonetic_goal) {
+					if (msg.phonetic_goal && rotorhazard.beep_race_winner_declared) {
 						ttstext += "ごおうる,";
 						ttstext += ", " + msg.lap +"周," + msg.phonetic_goal;
 					}
@@ -1010,7 +1010,7 @@
 							ttstext += msg.phonetic;
 						}
 
-						if (msg.phonetic_remain)
+						if (msg.phonetic_remain && rotorhazard.beep_race_winner_declared)
 							ttstext += ",残り" + msg.phonetic_remain;
 					}
 	
