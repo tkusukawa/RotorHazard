@@ -8,10 +8,10 @@
             "name": "server.py",
             "type": "debugpy",
             "request": "launch",
-            "program": "server.py",
-            "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/src/server",
+            "console": "integratedTerminal",
             "gevent": true,
+            "program": "${workspaceFolder}/src/server/server.py",
         }
     ]
 }
