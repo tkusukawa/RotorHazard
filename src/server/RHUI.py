@@ -9,7 +9,9 @@ from flask import request
 from flask_socketio import emit
 from eventmanager import Evt
 import json
+import os
 import subprocess
+import urllib3
 import re
 from collections import OrderedDict
 import gevent
@@ -228,8 +230,6 @@ class RHUI():
                 self._racecontext.serverconfig.flag_restart_key(field.persistent_section, field.name)
         else:
             field_internal_id = field.name
-            if not self._racecontext.rhdata.option_exists(field.name):
-                self._racecontext.rhdata.set_option(field.name, field.value)
 
         for idx, setting in enumerate(self._general_settings):
             if setting.name == field_internal_id:
@@ -240,6 +240,12 @@ class RHUI():
             self._general_settings.append(GeneralSetting(field_internal_id, field, panel, order))
 
         return self._general_settings
+
+    def init_setting_defaults(self):
+        for setting in self._general_settings:
+            field = setting.field
+            if not self._racecontext.rhdata.option_exists(field.name):
+                self._racecontext.rhdata.set_option(field.name, field.value)
 
     @property
     def general_settings(self):
@@ -258,7 +264,7 @@ class RHUI():
 
     def get_panel_settings(self, name):
         payload = []
-        for setting in self.general_settings:
+        for setting in self._general_settings:
             if setting.panel == name:
                 payload.append(setting)
 
@@ -341,7 +347,11 @@ class RHUI():
                 for setting in self.get_panel_settings(panel.name):
                     field = setting.field.frontend_repr()
 
-                    db_val = self._racecontext.rhdata.get_option(setting.name)
+                    if setting.field.persistent_section:
+                        db_val = self._racecontext.serverconfig.get_item(setting.field.persistent_section, setting.field.name)
+                    else:
+                        db_val = self._racecontext.rhdata.get_option(setting.field.name)
+
                     if db_val is not None:
                         field['value'] = db_val != '0' if setting.field.field_type is UIFieldType.CHECKBOX else db_val
 
@@ -462,6 +472,17 @@ class RHUI():
         plugin_data = self._racecontext.plugin_manager.get_display_data()
         category_data = self._racecontext.plugin_manager.get_remote_categories()
 
+        if not category_data or len(category_data) == 0:
+            try:
+                logger.info("Querying plugins server for updates")
+                self._racecontext.plugin_manager.load_remote_plugin_data()
+                category_data = self._racecontext.plugin_manager.get_remote_categories()
+                self._racecontext.plugin_manager.apply_update_statuses()
+            except IOError or OSError or urllib3.exceptions.HTTPError as ex:
+                logger.info("Unable to query plugins server (no internet access?): {}".format(ex))
+            except:
+                logger.exception("Error querying plugins server")
+
         emit_payload = {
             'remote_categories': category_data,
             'remote_data': plugin_data
@@ -550,7 +571,7 @@ class RHUI():
 
         emit_payload = self._filters.run_filters(Flt.EMIT_HEAT_PLAN, emit_payload)
 
-        self._socket.emit('heat_plan_result', emit_payload)
+        emit('heat_plan_result', emit_payload)
 
     def emit_race_stage(self, payload):
         self._socket.emit('stage_ready', payload)
@@ -1934,3 +1955,23 @@ class RHUI():
     def emit_refresh_page(self, **params):
         ''' Emits refresh-page message '''
         self._socket.emit('refresh_page')
+
+    def emit_upd_cfg_files_list(self, select_cfg_file=None):
+        '''Update List of database files in cfg_bkp'''
+        if not os.path.exists(self._racecontext.serverconfig.cfg_bkp_dir_name):
+            emit_payload = {
+                'cfg_files': None,
+                'select_file': None
+            }
+        else:
+            files = []
+            for (_, _, filenames) in os.walk(self._racecontext.serverconfig.cfg_bkp_dir_name):
+                files.extend(filenames)
+                break
+            files.sort(key=str.casefold)
+            files = list(filter(lambda x: x.endswith(".json"), files))
+            emit_payload = {
+                'cfg_files': files,
+                'select_file': select_cfg_file
+            }
+        self._socket.emit('upd_cfg_files_list', emit_payload)

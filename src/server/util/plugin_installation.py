@@ -16,6 +16,8 @@ import requests
 from gevent import subprocess, pool
 from packaging import version
 
+DEFAULT_DATA_URI = "https://rhcp.hazardcreative.com/v1/plugin/data.json"
+DEFAULT_CATEGORIES_URI = "https://rhcp.hazardcreative.com/v1/plugin/categories.json"
 
 class _PluginStatus(IntEnum):
     """
@@ -39,9 +41,9 @@ class PluginInstallationManager:
     _local_plugin_data: dict[str, Any]
     _prerelease_mapping: dict[str, bool]
     _categories: list[str]
-    update_avaliable: bool = False
+    update_available: bool = False
 
-    def __init__(self, plugin_dir: Path, remote_config):
+    def __init__(self, plugin_dir: Path, remote_config: dict):
 
         if not plugin_dir.exists():
             raise FileNotFoundError(f"{plugin_dir} does not exist")
@@ -60,11 +62,12 @@ class PluginInstallationManager:
 
         data_uri = remote_config.get('data_uri', None)
         if data_uri is None:
-            data_uri = 'https://rhcp.hazardcreative.com/v1/plugin/data.json'
+            data_uri = DEFAULT_DATA_URI
         self._remote_data_uri = data_uri
+        
         categories_uri = remote_config.get('categories_uri', None)
         if categories_uri is None:
-            categories_uri = 'https://rhcp.hazardcreative.com/v1/plugin/categories.json'
+            categories_uri = DEFAULT_CATEGORIES_URI
         self._remote_category_uri = categories_uri
 
     def load_remote_plugin_data(self):
@@ -142,7 +145,7 @@ class PluginInstallationManager:
         :return: Status of plugin install
         """
         remote_version = plugin_data.get("last_version")
-        domain: Union[str, None] = plugin_data.get("domain")
+        domain: Union[str, None] = plugin_data.get('manifest', {}).get('domain')
 
         if domain is not None and domain in self._local_plugin_data:
             local_data: dict[str, Any] = self._local_plugin_data[domain]
@@ -158,12 +161,12 @@ class PluginInstallationManager:
                 plugin_data["update_status"] = local_data["update_status"] = (
                     _PluginStatus.PRE_RELEASE_UPDATE
                 )
-                self.update_avaliable = True
+                self.update_available = True
             elif remote_version_ > local_version_:
                 plugin_data["update_status"] = local_data["update_status"] = (
                     _PluginStatus.RELEASE_UPDATE
                 )
-                self.update_avaliable = True
+                self.update_available = True
             else:
                 plugin_data["update_status"] = _PluginStatus.NO_UPDATE
 
@@ -191,7 +194,8 @@ class PluginInstallationManager:
         last_version = plugin_data.get("last_version")
         pre_version = plugin_data.get("last_prerelease")
 
-        zip_filename = plugin_data.get("zip_filename")
+        manifest: dict = plugin_data["manifest"]
+        zip_filename = manifest.get("zip_filename")
 
         if last_version is not None and pre_version is not None and allow_prerelease:
             if version.parse(last_version) < version.parse(pre_version):
