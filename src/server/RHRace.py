@@ -778,7 +778,7 @@ class RHRace():
                                 # New lap time is the difference between the current time stamp and the last
                                 lap_time = lap_time_stamp - last_lap_time_stamp
 
-                                if race_format.unlimited_time and lap_time > 60000:
+                                if race_format.unlimited_time and race_format.number_laps_win == 0 and lap_time > 60000:
                                     lap_number = 0
                                     lap_time_stamp_relative = 0
                                 else:
