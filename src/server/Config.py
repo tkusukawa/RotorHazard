@@ -87,7 +87,7 @@ class Config:
         self.config['SECRETS']['ADMIN_PASSWORD'] = 'rotorhazard'
 
         # UI
-        self.config['UI']['timerName'] = "RotorHazard"
+        self.config['UI']['timerName'] = "RotorHazardCustom"
         self.config['UI']['timerLogo'] = ''
         self.config['UI']['hue_0'] = '212'
         self.config['UI']['sat_0'] = '55'

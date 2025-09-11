@@ -1,5 +1,15 @@
 ![RotorHazard Logo](/src/server/static/image/RotorHazard%20Logo.svg)
 
+# RotorHazardCustom
+
+This project is a customized fork of [RotorHazard](https://github.com/RotorHazard/RotorHazard).  
+It is **not** the official version and contains independent modifications.
+
+> ⚠️ Disclaimer:  
+> - This is an unofficial version. It is **not supported** by the RotorHazard development team.  
+> - The "RotorHazard" name, logo, and branding elements remain the property of their copyright holders.  
+> - Please contact the maintainer of this repository regarding modifications or issues.
+
 # RotorHazard
 **FPV Race Timing and Event Management**
 
