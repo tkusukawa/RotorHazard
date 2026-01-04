@@ -1412,6 +1412,11 @@ rotorhazard.timer.race.callbacks.stop = function(timer){
 	$('.time-display').html(timer.renderHTML());
 }
 rotorhazard.timer.race.callbacks.expire = function(timer){
+   	// Staggered Start のときはタイムアップ音を鳴らさない
+   	if (timer.start_behavior == 2) {
+       	$('.time-display').html(timer.renderHTML());
+       	return;
+    }	
 	// play expired tone
 	if (rotorhazard.use_mp3_tones) {
 		play_mp3_beep(sound_buzzer, rotorhazard.tone_volume);

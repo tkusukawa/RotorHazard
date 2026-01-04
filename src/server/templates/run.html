@@ -45,7 +45,8 @@
 		var race_start_pi = (msg.pi_starts_at_s * 1000); // convert seconds (pi) to millis (JS)
 
 		rotorhazard.timer.race.hidden_staging = Boolean(msg.hide_stage_timer);
-		rotorhazard.timer.race.count_up = Boolean(msg.unlimited_time);
+		rotorhazard.timer.race.start_behavior = msg.start_behavior;
+		rotorhazard.timer.race.count_up = Boolean(msg.unlimited_time) || (msg.start_behavior == 2);
 		rotorhazard.timer.race.duration_tenths = msg.race_time_sec * 10;
 
 		rotorhazard.timer.race.staging_tones = msg.staging_tones;
@@ -369,7 +370,8 @@
 		socket.on('race_status', function (msg) {
 			rotorhazard.event.race_status = msg;
 
-			rotorhazard.timer.race.count_up = Boolean(msg.unlimited_time);
+			rotorhazard.timer.race.start_behavior = msg.start_behavior;
+			rotorhazard.timer.race.count_up = Boolean(msg.unlimited_time) || (msg.start_behavior == 2);
 			rotorhazard.timer.race.duration_tenths = msg.race_time_sec * 10;
 			rotorhazard.timer.race.staging_tones = msg.staging_tones;
 
@@ -907,9 +909,13 @@
 						if (lap.lap_number && lap.lap_raw < (rotorhazard.min_lap * 1000)) {
 							tr.addClass('min-lap-warning');
 						}
-						if (!rotorhazard.event.race_status.unlimited_time && lap.lap_time_stamp > (rotorhazard.event.race_status.race_time_sec * 1000)) {
+ 						// ★制限時間超過でグレーにしない。各自がゴール(finish)したらグレーにする
+						//if (!rotorhazard.event.race_status.unlimited_time && lap.lap_time_stamp > (rotorhazard.event.race_status.race_time_sec * 1000)) {
+						//	tr.addClass('after-time-expired');
+						//}
+ 						if (lap.finish) {
 							tr.addClass('after-time-expired');
-						}
+ 						}
 						tr.appendTo('#current_laps_' + i);
 
 						if(!rotorhazard.display_laps_reversed) {
@@ -987,7 +993,7 @@
 							ttstext = msg.pilot;
 					}
 	
-					if (msg.phonetic_goal && rotorhazard.voice_race_winner) {
+					if (msg.phonetic_goal) {
 						ttstext += "ごおうる,";
 						ttstext += ", " + msg.lap +"周," + msg.phonetic_goal;
 					}
@@ -1010,7 +1016,7 @@
 							ttstext += msg.phonetic;
 						}
 
-						if (msg.phonetic_remain && rotorhazard.voice_race_winner)
+						if (msg.phonetic_remain)
 							ttstext += ",残り" + msg.phonetic_remain;
 					}
 	

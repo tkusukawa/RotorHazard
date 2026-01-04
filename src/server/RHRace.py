@@ -34,6 +34,7 @@ class Crossing(dict):
     lap_time_formatted: str = None
     source: str = None
     deleted: bool = False
+    finish: bool = False
     late_lap: bool = False
     invalid: bool = False
     def __bool__(self):
@@ -779,6 +780,7 @@ class RHRace():
                                 lap_time = lap_time_stamp - last_lap_time_stamp
 
                                 if race_format.unlimited_time and race_format.number_laps_win == 0 and lap_time > 60000:
+                                    # レース形式がレース形式が制限時間なし＆周回数なしの場合60秒超で周回数をリセット
                                     lap_number = 0
                                     lap_time_stamp_relative = 0
                                 else:
@@ -849,26 +851,37 @@ class RHRace():
                                 if race_format.team_racing_mode == race_format.team_racing_mode == RacingMode.INDIVIDUAL:
                                     node_finished_flag = self.get_node_finished_flag(node.index)
                                     if not node_finished_flag:
+                                        if race_format.start_behavior == StartBehavior.STAGGERED:
+                                            # レース形式が「時差スタート」の場合は初回通過からの時間で判定
+                                            time_stamp = lap_time_stamp_relative
+                                        else:
+                                            time_stamp = lap_time_stamp
                                         # set next node race status as 'finished' if timer mode is count-down race and race-time has expired
                                         if race_format.unlimited_time == 0:
-                                            if lap_time_stamp > race_format.race_time_sec * 1000:
+                                            if time_stamp > race_format.race_time_sec * 1000:
                                                 pilot_done_flag = True
-                                                goal_time = lap_time_stamp
+                                                goal_time = time_stamp
+                                            elif lap_number != 0 and \
+                                                    time_stamp > race_format.race_time_sec * 1000 - (lap_time * 2):
+                                                remain_time = race_format.race_time_sec * 1000 - time_stamp
                                         elif self.format.win_condition == WinCondition.FIRST_TO_LAP_X:
                                             if race_format.start_behavior != StartBehavior.FIRST_LAP:
                                                 if lap_number >= race_format.number_laps_win:
                                                     pilot_done_flag = True
-                                                    goal_time = lap_time_stamp
+                                                    goal_time = time_stamp
                                             else:
                                                 if lap_number + 1 >= race_format.number_laps_win:
                                                     pilot_done_flag = True
-                                                    goal_time = lap_time_stamp
-                                        else: # unlimited_time != 0 and win_condition != FIRST_TO_LAP_X
+                                                    goal_time = time_stamp
+                                        elif race_format.unlimited_time != 0 and \
+                                                race_format.number_laps_win == 0 and \
+                                                self.format.win_condition == WinCondition.MOST_PROGRESS:
+                                            # レース形式が「制限時間なし」「周回数なし」「最多周回数で最速タイム」の場合 JDL予選(90秒)モード
                                             lap_time_stamp_phonetic = lap_time_stamp_relative
                                             if lap_time_stamp_relative > 90000:
                                                 if lap_time_stamp_relative - lap_time <= 90000:
                                                     goal_time = lap_time_stamp_relative
-                                            elif lap_time_stamp_relative + (lap_time * 2) > 90000:
+                                            elif lap_time_stamp_relative > 90000 - (lap_time * 2):
                                                 remain_time = 90000 - lap_time_stamp_relative
                                     else:
                                         lap_late_flag = True  # "late" lap pass (after grace lap)
@@ -922,6 +935,7 @@ class RHRace():
                                 lap_data.lap_time_formatted = lap_time_fmtstr
                                 lap_data.source = source
                                 lap_data.deleted = lap_late_flag  # delete if lap pass is after race winner declared
+                                lap_data.finish = (goal_time != 0)
                                 lap_data.late_lap = lap_late_flag
 
                                 self.node_laps[node.index].append(lap_data)
@@ -1370,6 +1384,11 @@ class RHRace():
         logger.debug("Entered 'check_win_condition()', win_status={}, win_not_decl_flag={}, del_lap_flag={}".\
                      format(self.win_status, win_not_decl_flag, del_lap_flag))
 
+        # ★レース終了後にのみ勝者判定したい為
+        # レース中(RACING/STAGING/READY等)は勝者判定を行わない
+        if self.race_status != RaceStatus.DONE and ('forced' not in kwargs):
+            return {'status': WinStatus.NONE}
+
         # if winner not yet declared or racer lap was deleted then check win condition
         win_status_dict = Results.check_win_condition_result(self._racecontext, **kwargs) \
                           if win_not_decl_flag or del_lap_flag else None
@@ -1514,7 +1533,8 @@ class RHRace():
                     self.status_message = status_msg_str
                     self.phonetic_status_msg = phonetic_status_msg if phonetic_status_msg else status_msg_str
                     logger.info(log_msg_str)
-                    self._racecontext.rhui.emit_phonetic_text(phonetic_str, 'race_winner', winner_flag)
+                    #self._racecontext.rhui.emit_phonetic_text(phonetic_str, 'race_winner', winner_flag) # 勝者を遅れて喋らせる
+                    gevent.spawn_later(0.1, self._racecontext.rhui.emit_phonetic_text, phonetic_str, 'race_winner', winner_flag)
                     if win_status_dict.get('race_win_event_flag', True):
                         self._racecontext.events.trigger(Evt.RACE_WIN, {
                             'win_status': win_status_dict,
@@ -1600,6 +1620,7 @@ class RHRace():
                         'lap_time_stamp': lap.lap_time_stamp,
                         'lap_time_stamp_relative': lap.lap_time_stamp_relative,
                         'splits': splits,
+                        'finish': lap.finish,
                         'late_lap': lap.late_lap
                     })
 

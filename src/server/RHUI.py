@@ -606,6 +606,7 @@ class RHUI():
                 'race_class_id': class_id,
                 'unlimited_time': self._racecontext.race.unlimited_time,
                 'race_time_sec': self._racecontext.race.race_time_sec,
+                'start_behavior': race_format.start_behavior,
                 'staging_tones': 0,
                 'hide_stage_timer': race_format.start_delay_min_ms != race_format.start_delay_max_ms,
                 'pi_starts_at_s': self._racecontext.race.start_time_monotonic,
@@ -1575,7 +1576,7 @@ class RHUI():
             if remain_time:
                 phonetic_remain = RHUtils.format_phonetic_time_to_str(remain_time, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
             if goal_time:
-                phonetic_goal = RHUtils.format_phonetic_time_to_str(lap_time_stamp, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
+                phonetic_goal = RHUtils.format_phonetic_time_to_str(goal_time, self._racecontext.serverconfig.get_item('UI', 'timeFormatPhonetic'))
 
         emit_payload = {
             'lap': lap_id,
