@@ -1,5 +1,5 @@
 '''RotorHazard server script'''
-RELEASE_VERSION = "4.3.1kusu26-01-04" # Public release version code
+RELEASE_VERSION = "4.3.1kusu26-01-17" # Public release version code
 SERVER_API = 46 # Server API version
 NODE_API_SUPPORTED = 18 # Minimum supported node version
 NODE_API_BEST = 35 # Most recent node API
@@ -1238,7 +1238,7 @@ def on_expand_heat(data):
 @catchLogExcWithDBWrapper
 def on_get_class_recents(data):
     if data and 'class_id' in data:
-        RaceContext.rhui.emit_recent_heats(data['class_id'], 6) # TODO: Place var in UI Config
+        RaceContext.rhui.emit_recent_heats(data['class_id'], 9999) # TODO: Place var in UI Config
 
 @SOCKET_IO.on('add_heat')
 @catchLogExcWithDBWrapper
@@ -1372,7 +1372,7 @@ def on_alter_pilot(data):
     '''Update pilot.'''
     _pilot, race_list = RaceContext.rhdata.alter_pilot(data)
 
-    RaceContext.rhui.emit_pilot_data(noself=True) # Settings page, new pilot settings
+    RaceContext.rhui.emit_pilot_data() # Settings page, new pilot settings
     RaceContext.rhui.emit_heat_data()
 
     if 'callsign' in data or 'team_name' in data:
