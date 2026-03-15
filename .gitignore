@@ -12,6 +12,8 @@
 # RH Database and backups
 *.db
 /src/server/db_bkp
+*.db-shm
+*.db-wal
 
 # Local system configuration
 /src/server/config*.json
@@ -32,3 +34,8 @@ venv
 
 # User plugins folder
 /src/server/plugins/*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride

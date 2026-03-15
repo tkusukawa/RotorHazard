@@ -81,6 +81,8 @@ class Config:
         self.config['GENERAL']['RACE_START_DELAY_EXTRA_SECS'] = 0.9  # amount of extra time added to prestage time
         self.config['GENERAL']['LOG_SENSORS_DATA_RATE'] = 300  # rate at which to log sensor data
         self.config['GENERAL']['SERIAL_PORTS'] = []
+        self.config['GENERAL']['MOCK_NODES'] = 0
+        self.config['GENERAL']['MOCK_NODE_SIGNAL'] = 0
         self.config['GENERAL']['LAST_MODIFIED_TIME'] = 0
 
         self.config['SECRETS']['ADMIN_USERNAME'] = 'admin'
@@ -128,6 +130,7 @@ class Config:
         self.config['PLUGINS']['REMOTE_DATA_URI'] = None
         self.config['PLUGINS']['REMOTE_CATEGORIES_URI'] = None
         self.config['PLUGINS']['UPDATE_BEHAVIOR'] = 'check'
+        self.config['PLUGINS']['SHOW_RELEASES'] = False
 
         self.InitResultStr = None
         self.InitResultLogLevel = logging.INFO
@@ -186,6 +189,7 @@ class Config:
                 'SHUTDOWN_BUTTON_DELAYMS',
                 'DB_AUTOBKP_NUM_KEEP',
                 'SERIAL_PORTS',
+                'MOCK_NODES'
             ],
             'LOGGING': [
                 'CONSOLE_LEVEL',

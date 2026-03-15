@@ -7,6 +7,10 @@ CAP_ENTER_EXIT_AT_MILLIS = 3000  # number of ms for capture of enter/exit-at lev
 
 logger = logging.getLogger(__name__)
 
+class MarshalType():
+    FULL_RSSI = 0
+    HYBRID_PASS_PEAK_RSSI = 1
+    PASS_PEAK_ONLY = 2
 
 class BaseHardwareInterface(object):
 
@@ -33,6 +37,12 @@ class BaseHardwareInterface(object):
         self.new_enter_or_exit_at_callback = None # Function added in server.py
         self.node_crossing_callback = None # Function added in server.py
         self.nodes = []
+        self.marshal_type = None
+        self.ready_failure_msg = None
+
+    @property
+    def ready(self):
+        return True
 
     # returns the elapsed milliseconds since the start of the program
     def milliseconds(self):
@@ -92,6 +102,9 @@ class BaseHardwareInterface(object):
                     if callable(self.new_enter_or_exit_at_callback):
                         gevent.spawn(self.new_enter_or_exit_at_callback, node, False)
 
+        self.process_history(node, readtime, pn_history)
+
+    def process_history(self, node, readtime, pn_history):
         # prune history data if race is not running (keep last 60s)
         if self.race_status is BaseHardwareInterface.RACE_STATUS_READY:
             if len(node.history_times):
@@ -116,7 +129,7 @@ class BaseHardwareInterface(object):
                 item = upd_list[0]
                 node = item[0]
                 if node.node_lap_id != -1 and callable(self.pass_record_callback):    # (node, lap_time_absolute)
-                    self.pass_record_callback(node, item[2], BaseHardwareInterface.LAP_SOURCE_REALTIME)  #pylint: disable=not-callable
+                    self.pass_record_callback(node, item[2], BaseHardwareInterface.LAP_SOURCE_REALTIME, peak=node.pass_peak_rssi)  #pylint: disable=not-callable
                 node.node_lap_id = item[1]  # new_lap_id
 
             else:  # list contains multiple items; sort so processed in order by lap time
@@ -124,7 +137,7 @@ class BaseHardwareInterface(object):
                 for item in upd_list:
                     node = item[0]
                     if node.node_lap_id != -1 and callable(self.pass_record_callback):    # (node, lap_time_absolute)
-                        self.pass_record_callback(node, item[2], BaseHardwareInterface.LAP_SOURCE_REALTIME)  #pylint: disable=not-callable
+                        self.pass_record_callback(node, item[2], BaseHardwareInterface.LAP_SOURCE_REALTIME, peak=node.pass_peak_rssi)  #pylint: disable=not-callable
                     node.node_lap_id = item[1]  # new_lap_id
 
     #

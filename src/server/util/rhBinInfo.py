@@ -2,7 +2,7 @@
 #
 # Example Usage:
 #
-# cd ~/RotorHazard/server
+# cd ~/RotorHazard/src/server
 # python util/rhBinInfo.py http://www.rotorhazard.com/fw/rel/current/RH_S32_BPill_node.bin
 #
 

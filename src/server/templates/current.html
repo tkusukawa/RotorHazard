@@ -112,11 +112,7 @@
 		});
 
 		socket.on('language', function (msg) {
-			$('#set_language').empty();
-			$('#set_language').append('<option value="">English</option>')
-			for (i = 0; i < msg.languages.length; i++) {
-				$('#set_language').append('<option value="' + msg.languages[i].id +'">' + msg.languages[i].name + '</option>')
-			}
+			rotorhazard.interface_language = msg.language;
 
 			$('#set_voice_string_language').empty();
 			$('#set_voice_string_language').append('<option value="match-timer">' + __('(Match Timer Language)') + '</option>')
@@ -125,13 +121,6 @@
 				$('#set_voice_string_language').append('<option value="' + msg.languages[i].id +'">' + msg.languages[i].name + '</option>')
 			}
 			$('#set_voice_string_language').val(rotorhazard.voice_string_language);
-
-			if (msg.language) {
-				rotorhazard.interface_language = msg.language;
-				$('#set_language').val(msg.language);
-			} else {
-				$('#set_language').selectedIndex = 0;
-			}
 		});
 
 		// set up node local store
@@ -376,7 +365,7 @@
 										$('<td class="display_lap_number">').text(lap_num)
 									);
 								}
-								time_td = $('<td colspan="'+local_colspan+'">').text(lap.lap_time + ' ');
+								time_td = $('<td colspan="'+local_colspan+'">').text(lap.lap_time_formatted + ' ');
 								local_prepend = $('<span class="from_start">');
 
 								if(rotorhazard.display_time_first_pass) {
@@ -392,7 +381,7 @@
 								time_td.prepend(local_prepend);
 								tr.append(time_td);
 
-								if (lap.lap_number && lap.lap_raw < (rotorhazard.min_lap * 1000)) {
+								if (lap.lap_number && lap.lap_time < (rotorhazard.min_lap * 1000)) {
 									tr.addClass('min-lap-warning');
 								}
 		 						// 制限時間超過でグレーにしない。各自がゴール(finish)したらグレーにする
@@ -629,7 +618,7 @@
 		});
 
 		socket.on('stop_timer', function (msg) {
-			rotorhazard.timer.stopAll();
+			rotorhazard.timer.race.stop();
 		});
 
 		socket.on('pilot_data', function (msg) {

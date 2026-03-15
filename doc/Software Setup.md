@@ -140,7 +140,14 @@ wget https://rotorhazard.com/install.sh
 sh install.sh
 ```
 
-(Note that the updates for the RotorHazard server Python dependencies may take a few minutes.)
+To install another version, add the desired version code after `install.sh` - for example:
+```bash
+sh install.sh v4.3.0-beta.1
+```
+
+Note:
+* The updates for the RotorHazard server Python dependencies may take a few minutes
+* Error messages about "pip's dependency resolver ... Flask-SQLAlchemy not installed" may be safely ignored
 
 ### 8. Configuration File
 When the RotorHazard server is run for the first time, it will create a `config.json` file in the data directory. **As of RotorHazard 4.3, it is not necessary to hand-edit this file.** All settings can be modified within the frontend user interface. The `config.json` file may still be directly edited to alter the configuration settings, but this must only be done while the RotorHazard server is not running, otherwise the changes will be overwritten. When the server starts up, if it detects that the `config.json` has been updated, it will load the settings and then create a backup copy of the file (with a filename in the form "config_bkp_YYYYMMDD_hhmmss.json").
@@ -359,6 +366,11 @@ When the hardware is a Raspberry Pi 5, the '[rpi5-ws2812](https://github.com/nik
 - Inverted Control Signal
 - Channel
 
+If the LED count is more than 50, the SPI buffer size should be increased by adding " spidev.bufsiz=65536" to the first line of '/boot/firmware/cmdline.txt' file on the Pi. The following command will add the text and display the contents of the file:
+```commandline
+if [ -f "/boot/firmware/cmdline.txt" ] && ! grep -qF 'spidev.bufsiz' /boot/firmware/cmdline.txt; then echo && sudo sh -c 'sed -i "1 s/$/ spidev.bufsiz=65536/" /boot/firmware/cmdline.txt'; fi && cat /boot/firmware/cmdline.txt && echo
+```
+
 #### LED Controller
 
 An alternative to the above methods is to use an LED Controller module, which may be connected to a USB port on any computer that is running the RotorHazard Server. See the [LED Controller repository](https://github.com/RotorHazard/LEDCtrlr) for details on how to wire and program an Arduino board as an LED controller.
@@ -390,6 +402,8 @@ Before updating, any currently-running RotorHazard server should be stopped. If 
 sudo systemctl stop rotorhazard
 ```
 
+The minimum version of Python supported is 3.10. If the installed version is older, it should be upgraded before upgrading RotorHazard. You can check the current version on the command line using `python --version`. This wiki article covers a method to [install a newer version of Python](https://github.com/RotorHazard/RotorHazard/wiki/Installing-Newer-Versions-of-Python-on-the-Raspberry-Pi).
+
 To update to the [latest stable release](https://github.com/RotorHazard/RotorHazard/releases/latest), enter the following commands:
 
 ```bash
@@ -398,11 +412,15 @@ wget https://rotorhazard.com/update.sh
 sh update.sh
 ```
 
+To upgrade to another version, add the desired version code after `update.sh` - for example:
+```bash
+sh update.sh v4.3.0-beta.1
+```
+
 Note:
 * The updates for the RotorHazard server Python dependencies may take a few minutes
-* The previous "RotorHazard" directory will be archived as: "old/RotorHazard_YYYYMMDD_HHMMSS" (with the current date/time) 
-
-For RotorHazard the minimum version of Python supported is 3.9. If the installed version is Python 3.8 or older, see this [wiki article](https://github.com/RotorHazard/RotorHazard/wiki/Installing-Newer-Versions-of-Python-on-the-Raspberry-Pi) for a way to install a newer version of Python.
+* Error messages about "pip's dependency resolver ... Flask-SQLAlchemy not installed" may be safely ignored
+* The previous "RotorHazard" directory will be archived as: "old/RotorHazard_YYYYMMDD_HHMMSS" (with the current date/time)
 
 ----------------------------------------------------------------------------
 
@@ -413,7 +431,7 @@ The RotorHazard server may be run on any computer with an operating system that 
 
 **To install the RotorHazard server on these systems:**
 
-1. If the computer does not already have Python installed, download and install Python from https://www.python.org/downloads . The minimum version of Python needed for RotorHazard is 3.9. To check if Python is installed and the version, open up a command prompt and enter ```python --version```
+1. If the computer does not already have Python installed, download and install Python from https://www.python.org/downloads . The minimum version of Python needed for RotorHazard is 3.10. To check if Python is installed and the version, open up a command prompt and enter ```python --version```
 
 2. From the RotorHazard [Releases page on github](https://github.com/RotorHazard/RotorHazard/releases), download the "Source code (zip)" file.
 

@@ -146,6 +146,7 @@ class Evt:
     DATABASE_IMPORT = 'databaseImport'
     # Race setup
     MIN_LAP_TIME_SET = 'minLapTimeSet'
+    MIN_FIRST_CROSSING_SET = 'minFirstCrossingSet'
     MIN_LAP_BEHAVIOR_SET = 'minLapBehaviorSet'
     RACE_ALTER = 'raceAlter'
     RACE_FORMAT_SET = 'raceFormatSet'
@@ -156,6 +157,7 @@ class Evt:
     RACE_SCHEDULE = 'raceSchedule'
     RACE_SCHEDULE_CANCEL = 'raceScheduleCancel'
     RACE_STAGE = 'raceStage'
+    RACE_ABORT = 'raceAbort' # race stopped during staging
     RACE_START = 'raceStart'
     RACE_FINISH = 'raceFinish'
     RACE_STOP = 'raceStop'
@@ -168,6 +170,7 @@ class Evt:
     CROSSING_EXIT = 'crossingExit'
     RACE_INITIAL_PASS = 'raceInitialPass'
     # Race management
+    RACE_LAPS_REPLACE = 'raceLapsReplace'
     LAPS_SAVE = 'lapsSave'
     LAPS_DISCARD = 'lapsDiscard'
     LAPS_CLEAR = 'lapsClear'

@@ -71,26 +71,7 @@
 		});
 
 		socket.on('language', function (msg) {
-			$('#set_language').empty();
-			$('#set_language').append('<option value="">English</option>')
-			for (var i = 0; i < msg.languages.length; i++) {
-				$('#set_language').append('<option value="' + msg.languages[i].id +'">' + msg.languages[i].name + '</option>')
-			}
-
-			$('#set_voice_string_language').empty();
-			$('#set_voice_string_language').append('<option value="match-timer">' + __('(Match Timer Language)') + '</option>')
-			$('#set_voice_string_language').append('<option value="">English</option>')
-			for (var i = 0; i < msg.languages.length; i++) {
-				$('#set_voice_string_language').append('<option value="' + msg.languages[i].id +'">' + msg.languages[i].name + '</option>')
-			}
-			$('#set_voice_string_language').val(rotorhazard.voice_string_language);
-
-			if (msg.language) {
-				rotorhazard.interface_language = msg.language;
-				$('#set_language').val(msg.language);
-			} else {
-				$('#set_language').selectedIndex = 0;
-			}
+			rotorhazard.interface_language = msg.language;
 		});
 
 		// set admin flag
@@ -128,24 +109,33 @@
 
 		socket.on('ui', function (msg) {
 			if (msg.page == 'format') {
-				$('#custom-ui').empty();
+				if (msg.replace_panels !== false) {
+					$('#custom-ui').empty();
+				}
 
 				for (var i in msg.panels) {
 					var panel = msg.panels[i];
 
-					var panel_el = $('<div class="panel collapsing active">');
-					panel_el.attr('id', 'ui-custom-' + panel.panel.name);
-					var panel_header_el = $('<div class="panel-header">');
-					panel_header_el.append('<h2><button class="no-style">' + panel.panel.label + '</button></h2>');
-					var panel_content_el = $('<div class="panel-content">');
-
-					// panel open/close
-					if (panel.panel.open) {
-						panel_el.addClass('open');
-						panel_content_el.show();
+					if (msg.replace_panels === false) {
+						var panel_el = $('#ui-custom-' + panel.panel.name);
+						var panel_content_el = panel_el.children('.panel-content');
+						panel_content_el.empty();
 					} else {
-						panel_el.removeClass('open');
-						panel_content_el.hide();
+						var panel_el = $('<div class="panel collapsing active">');
+						panel_el.attr('id', 'ui-custom-' + panel.panel.name);
+						var panel_header_el = $('<div class="panel-header">');
+						panel_header_el.append('<h2><button class="no-style">' + panel.panel.label + '</button></h2>');
+						var panel_content_el = $('<div class="panel-content">');
+						panel_el.append(panel_header_el);
+
+						// panel open/close
+						if (panel.panel.open) {
+							panel_el.addClass('open');
+							panel_content_el.show();
+						} else {
+							panel_el.removeClass('open');
+							panel_content_el.hide();
+						}
 					}
 
 					// add markdown content
@@ -736,6 +726,7 @@
 							.prop('id', `recent-heats--race-class-${race_class.id}`)
 							.addClass('recents');
 						$(document.createElement('h4'))
+							.addClass('screen-reader-text')
 							.text(__('Recent Heats'))
 							.appendTo(field);
 						var field_data = $(document.createElement('div'))
@@ -826,10 +817,14 @@
 					for (var j in rotorhazard.event.race_formats) {
 						$(document.createElement('option'))
 							.prop('value', rotorhazard.event.race_formats[j].id)
-							.text(rotorhazard.event.race_formats[j].name)
+							.text(__(rotorhazard.event.race_formats[j].name))
 							.appendTo(field_select);
 					}
-					field_select.val(race_class.format);
+					if (race_class.format == null) {
+						field_select.val(0);
+					} else {
+						field_select.val(race_class.format);
+					}
 
 					// Ranking
 					var field_select = $(`#ranking--race-class-${race_class.id}`)
@@ -1022,8 +1017,6 @@
 					var parent_el = $("#unclassified_heats");
 					parent_el.data('loaded', true);
 					$(document.createElement('h3'))
-						.addClass('heats')
-						.addClass('heat-edit-list')
 						.text(__('Unclassified Heats'))
 						.appendTo(parent_el);
 
@@ -1052,6 +1045,7 @@
 						.prop('id', 'recent-heats--race-class-0')
 						.addClass('recents');
 					$(document.createElement('h4'))
+						.addClass('screen-reader-text')
 						.text(__('Recent Heats'))
 						.appendTo(parent_el);
 					var field_data = $(document.createElement('div'))
@@ -1099,7 +1093,7 @@
 						.appendTo(/*???*/);
 				}
 
-				socket.emit('get_class_recents', {'class_id': 0});
+				socket.emit('get_class_recents', {'class_id': null});
 
 			}
 			freq.updateBlocks();
@@ -1422,7 +1416,8 @@
 		});
 
 		function display_recents(class_id, heats) {
-			var el = $(`#recent-heat-data--race-class-${class_id}`);
+			var class_html_designator = class_id ? class_id : 0;
+			var el = $(`#recent-heat-data--race-class-${class_html_designator}`);
 
 			var heat_uis = []
 			el.find('.heat-edit').each(function(heat_el){
@@ -1433,7 +1428,7 @@
 				var race_class = rotorhazard.event.classes.find(obj => {return obj.id == class_id});
 				if (!race_class) {
 					race_class = {
-						id: 0,
+						id: null,
 						round_type: 0
 					}
 				}
@@ -1537,7 +1532,8 @@
 					.addClass('heat-edit')
 					.appendTo(parent_el);
 
-				var heat_header = $(document.createElement('h4'))
+				var heat_header = $(document.createElement('h5'))
+					.addClass('screen-reader-text')
 					.text(`${__('Heat')} ${heat.id}`)
 				el.append(heat_header);
 
@@ -1767,8 +1763,9 @@
 					// channel
 					var slot_channel = $(document.createElement('div'))
 						.addClass('channel-block')
+						.addClass('no-freq')
 						.append(
-							$(document.createElement('span')).addClass('ch')
+							$(document.createElement('span')).addClass('ch').html('—')
 						)
 						.append(
 							$(document.createElement('span')).addClass('fr')
@@ -2263,7 +2260,9 @@
 		});
 
 		socket.on('heat_plan_result', function (msg) {
-			display_race_plan_result(msg);
+			if (rotorhazard.event.heats) {
+				display_race_plan_result(msg);
+			}
 			// TODO: store data locally; wait for rotorhazard.event.heats population
 		});
 
@@ -2284,30 +2283,23 @@
 			}
 
 			var heat_el = $('<div class="heat-plan">');
+			heat_el.data('heat_id', msg.heat);
 			var nodelist = $('<table>');
 			for (idx in msg.slots) {
 				var slot = msg.slots[idx];
 				var slot_el = $('<tr>');
+				slot_el.data('slot_id', slot.id);
+				slot_el.data('last_frequency', slot.last_frequency);
+
+				if (slot.preassigned) {
+					slot_el.addClass('preassigned');
+					slot_el.data('preassigned', slot.node_index);
+				}
 
 				if (slot.method == 0 && slot.pilot_id ||
 					slot.method > 0 && slot.seed_id) {
 					var method_text = get_method_descriptor(slot.method, slot.seed_id, slot.seed_rank)
 					slot_el.append('<td class="method">' + method_text + '</td>');
-
-					if (Number.isInteger(slot.node_index)) {
-						if (slot.frequency_change) {
-							slot_el.addClass('freq-change');
-							slot_el.append('<td class="calc_to">&#x25c8;<span class="screen-reader-text">' + __('frequency change') + '</span></td>');
-						} else {
-							slot_el.append('<td class="calc_to">&#x2192;</td>');
-						}
-
-						slot_el.append('<td class="channel"><div class="channel-block" data-node="' + slot.node_index + '"><span class="ch"></span> <span class="fr"></span></div></td>');
-					} else {
-						slot_el.addClass('no-freq');
-						slot_el.append('<td class="calc_to">&#x00D7;</td>');
-						slot_el.append('<td class="channel"><div class="channel-block"><span class="ch">—</span> <span class="fr">None</span></div></td>');
-					}
 
 					if (slot.pilot_id) {
 						/*
@@ -2322,10 +2314,26 @@
 						} else {
 							var callsign = "(" + __("Pilot") + " " + slot.pilot_id + ")"
 						}
-						slot_el.append('<td class="pilot-name">' + callsign + '</td>');
 					} else {
 						slot_el.addClass('no-pilot');
-						slot_el.append('<td class="pilot-name">' + __('(None)') + '</td>');
+						var callsign = __('(None)');
+					}
+					slot_el.data('callsign', callsign);
+					slot_el.append('<td class="pilot-name">' + callsign + '</td>');
+
+					if (Number.isInteger(slot.node_index)) {
+						if (slot.frequency_change) {
+							slot_el.addClass('freq-change');
+							slot_el.append('<td class="calc_to">' + __('to') + '</td>');
+						} else {
+							slot_el.append('<td class="calc_to">' + __('on') + '</td>');
+						}
+
+						slot_el.append('<td class="channel"><div class="channel-block" data-node="' + slot.node_index + '"><span class="ch"></span> <span class="fr"></span></div></td>');
+					} else {
+						slot_el.addClass('no-freq');
+						slot_el.append('<td class="calc_to">&#x00D7;</td>');
+						slot_el.append('<td class="channel"><div class="channel-block"><span class="ch">—</span> <span class="fr">None</span></div></td>');
 					}
 
 					nodelist.append(slot_el);
@@ -2337,6 +2345,7 @@
 
 			var actions_el = $('<div class="dialog-actions">');
 			actions_el.append('<button class="cancel">' + __('Cancel') + '</button>');
+			$('<button class="plan-calc">' + __('Reseed') + '</button>').data('id', msg.heat).appendTo(actions_el);
 			actions_el.append('<button class="btn-danger confirm-heat-plan" data-heat_id="' + msg.heat + '">' + __('Confirm') + '</button>');
 			message_content.append(actions_el);
 
@@ -2349,6 +2358,51 @@
 
 			freq.updateBlocks();
 		}
+
+		$(document).on("click", '.heat-plan-result table .channel-block', function (event) {
+			var slot_el = $(this).closest('tr');
+			var slot = slot_el.data('slot_id');
+			var last_frequency = slot_el.data('last_frequency');
+			var channel_selector_ui = $('<div class="channel-selector-ui">');
+			$('<h3>' + __('Assign') + ' ' + slot_el.data('callsign') + '</h3>').appendTo(channel_selector_ui);
+			var channel_selector = $('<div class="channel-block-selector">');
+			channel_selector.data('slot_id', slot);
+			channel_selector.data('preassigned', slot_el.data('preassigned'));
+			for (var i in rotorhazard.nodes) {
+				if (rotorhazard.nodes[i].fObj?.frequency) {
+					var block = $('<div class="channel-block" data-node="' + i + '"><span class="ch"></span> <span class="fr"></span>');
+					if (rotorhazard.nodes[i].fObj?.frequency != last_frequency) {
+						block.addClass('freq-change');
+					}
+					block.appendTo(channel_selector);
+				}
+			}
+			channel_selector.appendTo(channel_selector_ui);
+			$('.heat-plan').append(channel_selector_ui);
+			freq.updateBlocks();
+		});
+
+		$(document).on("click", '.channel-block-selector .channel-block', function (event) {
+			var heat_id = $(this).closest('.heat-plan').data('heat_id');
+			var selector = $(this).closest('.channel-block-selector');
+			var slot = parseInt(selector.data('slot_id'));
+			var seat = parseInt($(this).data('node'));
+
+			var preassigned_data = {};
+			$(this).closest('.heat-plan').children('table').children('tr').each(function(idx){
+				var preassigned_node = $(this).data('preassigned');
+				if (preassigned_node != undefined && preassigned_node != seat) {
+					preassigned_data[$(this).data('slot_id')] = preassigned_node;
+				}
+			});
+
+			var data = {
+				heat: heat_id,
+				preassignments: preassigned_data,
+			};
+			data.preassignments[slot] = seat;
+			socket.emit('calc_pilots', data);
+		});
 
 		$(document).on("click", '.confirm-heat-plan', function (event) {
 			$.magnificPopup.close();
@@ -2572,8 +2626,9 @@
 			socket.emit('alter_pilot', data);
 			var pilot = rotorhazard.event.pilots.find(obj => {return obj.pilot_id == pilot_id});
 			pilot.name = pilot_name;
-			display_classes();
-			display_unclassified_heats();
+
+			pilot_selector.seed();
+			display_pilot_selectors();
 		});
 
 		$(document).on("focus", '.set_pilot_callsign', function(){
@@ -2590,8 +2645,9 @@
 			socket.emit('alter_pilot', data);
 			var pilot = rotorhazard.event.pilots.find(obj => {return obj.pilot_id == pilot_id});
 			pilot.callsign = pilot_callsign;
-			display_classes();
-			display_unclassified_heats();
+
+			pilot_selector.seed();
+			display_pilot_selectors();
 		});
 
 		$(document).on("click", '.set_pilot_color', function (event) {
@@ -2732,7 +2788,7 @@
 			if (rotorhazard.event.race_formats && rotorhazard.race_points_methods) {
 				$('#set_race_format').empty();
 				for (var i = 0; i < rotorhazard.event.race_formats.length; i++) {
-					$('#set_race_format').append('<option value="' + rotorhazard.event.race_formats[i].id +'">' + rotorhazard.event.race_formats[i].name + '</option>');
+					$('#set_race_format').append('<option value="' + rotorhazard.event.race_formats[i].id +'">' + __(rotorhazard.event.race_formats[i].name) + '</option>');
 				}
 				if (current_format == 'last') {
 					$('#set_race_format').val($('#set_race_format option:last').val());
@@ -2749,7 +2805,7 @@
 				$('#set_points_method').empty();
 				$('#set_points_method').append('<option value="">' + __("None") + '</option>');
 				for (var i = 0; i < rotorhazard.race_points_methods.length; i++) {
-					$('#set_points_method').append('<option value="' + rotorhazard.race_points_methods[i].name +'">' + rotorhazard.race_points_methods[i].label + '</option>');
+					$('#set_points_method').append('<option value="' + rotorhazard.race_points_methods[i].name +'">' + __(rotorhazard.race_points_methods[i].label) + '</option>');
 				}
 				$('#set_points_params').html(svg_asset.gear);
 
@@ -3125,6 +3181,7 @@
 		socket.on('min_lap', function (msg) {
 			$('#set_min_lap').val(msg.min_lap);
 			$('#set_min_lap_behavior').val(msg.min_lap_behavior);
+			$('#set_min_first_crossing').val(msg.min_first_crossing);
 			rotorhazard.min_lap = msg.min_lap;
 		});
 
@@ -3142,6 +3199,14 @@
 				min_lap_behavior: parseInt($(this).val())
 			};
 			socket.emit('set_min_lap_behavior', data);
+		})
+
+		$('#set_min_first_crossing').change(function (event) {
+			var min_first_crossing_val = parseInt($(this).val());
+			var data = {
+				min_first_crossing: min_first_crossing_val
+			};
+			socket.emit('set_min_first_crossing', data);
 		})
 
 		/* Database Reset */
@@ -3565,14 +3630,6 @@
 				field_data.value = value;
 			}
 		});
-
-		$('#set_language').change(function (event) {
-			var data = {
-				language: $(this).val()
-			};
-			socket.emit('set_language', data);
-			location.reload(true);
-		});
 	});
 
 </script>
@@ -3607,14 +3664,14 @@
 					<label for="set_consecutives_count">{{ __('Consecutive Laps Base') }}</label>
 					<p class="desc">{{ __('Used in results calculations') }}</p>
 				</div>
-				<input type="number" id="set_consecutives_count" class="set-consecutive-count" min="2" max="999" value="{{ getOption('consecutivesCount') }}" placeholder="3">
+				<input type="number" id="set_consecutives_count" class="set-consecutive-count" min="2" max="999" value="{{ get_optionInt('consecutivesCount') }}" placeholder="3">
 			</li>
 			<li>
 				<div class="label-block">
 					<label for="set_min_lap">{{ __('Minimum Lap Time') }}</label>
 					<p class="desc">{{ __('In seconds') }}</p>
 				</div>
-				<input type="number" id="set_min_lap" min="0" max="999" value="{{ getOption('MinLapSec') }}">
+				<input type="number" id="set_min_lap" min="0" max="999" value="{{ get_optionNumeric('MinLapSec') }}">
 			</li>
 			<li>
 				<div class="label-block">
@@ -3624,6 +3681,13 @@
 					<option value="0">{{ __('Highlight Short Laps') }}</option>
 					<option value="1">{{ __('Discard New Short Laps') }}</option>
 				</select>
+			</li>
+			<li>
+				<div class="label-block">
+					<label for="set_min_first_crossing">{{ __('Ignore Crossings Before') }}</label>
+					<p class="desc">{{ __('Seconds') }}</p>
+				</div>
+				<input type="number" id="set_min_first_crossing" min="0" max="999" value="{{ get_optionNumeric('MinFirstCrossingSec') }}">
 			</li>
 		</ol>
 

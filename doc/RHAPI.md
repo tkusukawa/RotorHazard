@@ -198,10 +198,11 @@ Calls function when a socket event is received.
 
 Update data displayed on frontend. Use after modifying data structures with other API methods.
 
-#### ui.broadcast_ui(page):
+#### ui.broadcast_ui(page, replace_panels=True):
 Broadcast UI panel setup to all connected clients.
 
 - `page` (string): Page to update
+- `replace_panels` (boolean): if True, replaces all panels on page
 
 #### ui.broadcast_frequencies():
 Broadcast seat frequencies to all connected clients.
@@ -243,9 +244,19 @@ _Read only_
 Provide a list of options registered by plugins. Does not include built-in options or fields registered as persistent configuration.
 
 #### fields.register_option(field, panel=None, order=0)
-Register an option and optionally assign it to be displayed on a UI panel.
+Register an option and optionally assign it to be displayed on a UI panel. By default, options registered this way are event-scoped. If `persistent_section` is true in the UIField, the option will be server-scoped. 
 
 - `field` (UIField): See [UI Fields](Plugins.md#ui-fields)
+- `panel` _optional_ (string): `name` of panel previously registered with `ui.register_panel`
+- `order` _optional_ (int): Not yet implemented
+
+#### fields.register_function_binding(field, getter_fn, setter_fn, args=None, panel=None, order=0)
+Register a field bound to user-defined functions instead of directly to an option value and optionally assign it to be displayed on a UI panel.
+
+- `field` (UIField): Defines the frontend representation; see [UI Fields](Plugins.md#ui-fields)
+- `getter_fn` (callable): function called when the value is populated to the UI
+- `setter_fn` (callable): function called when the UI passes a value to be set
+- `args` _optional_ (dict): arguments to be passed to the setter function when called
 - `panel` _optional_ (string): `name` of panel previously registered with `ui.register_panel`
 - `order` _optional_ (int): Not yet implemented
 
@@ -1304,10 +1315,11 @@ Pilot database ID of current race leader. Returns `int`, or `None`.
 _Read only_
 Internal (monotonic) timestamp of scheduled race staging start time. Returns `int`, or `None` if race is not scheduled. 
 
-#### race.schedule(sec_or_none, minutes=0)
+#### race.schedule(sec_or_none, minutes=0, force_save=False)
 Schedule race with a relative future time offset. Fails if `race.status` is not `READY`. Cancels existing schedule if both values are falsy. Returns boolean success value.
 - `sec_or_none`: seconds ahead to schedule race
 - `minutes` _(optional)_: minutes ahead to schedule race
+- `force_save` _(optional)_: if `True` and active race is stopped at scheduled time, save and stage race
 
 #### race.stage()
 Begin race staging sequence. May fail if `race.status` is not `READY`. No return value.
@@ -1433,8 +1445,10 @@ These methods are accessed via `RHAPI.server`
 
 ### All Properties and Methods
 
-#### server.enable_heartbeat_event()
-When enabled, each time the server heartbeat function runs a `Evt.HEARTBEAT` event will be triggered. No return value.
+#### server.enable_heartbeat_event(start_background_threads=True)
+When enabled, each time the server heartbeat function runs a `Evt.HEARTBEAT` event will be triggered.
+Background threads will be started (if not already running), unless 'False' is passed in for the
+'start_background_threads' parameter. No return value.
 
 #### server.info
 _Read only_
@@ -1535,19 +1549,21 @@ For example, the `Flt.EMIT_PHONETIC_DATA` hook runs just before lap announcement
 
 ### All Properties and Methods
 
-#### filters.add(hook, name, fn, priority=200):
+#### filters.add(hook, name, fn, priority=200, with_context=False):
 Add a new filter function to an existing hook. The filter will be run when the hook is triggered.
 - `hook` (Flt|string): Hook to attach this filter to 
 - `name` (string): Internal identifier for this filter
 - `fn` (function): Function to run when the hook is triggered 
 - `priority` _(optional)_ (int): Order in which this filter will run among all attached to this hook
+- `with_context` _(optional)_ (boolean): if True, additional data (context) is passed to the function as an additional argument when run, if specified by the runner; if False, function will be run with no additional arguments
 
 #### filters.remove(hook, name):
 Remove a filter from a hook.
 - `hook` (Flt|string): Hook from which filter to remove is attached
 - `name` (string): Internal identifier of filter to remove
 
-#### filters.run(hook, data):
+#### filters.run(hook, data, context=None):
 Run filters attached to specified hook.
 - `hook` (Flt|string): Hook on which filters will be called
 - `data` (any): Data supplied to filters attached to hook
+- `context` (any): additional data passed to filters as an argument
