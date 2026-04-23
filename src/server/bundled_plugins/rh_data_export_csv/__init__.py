@@ -208,13 +208,14 @@ def assemble_results(rhapi):
 
         payload.append([''])
 
-    all_classes = sorted(list(results['heats_by_class'].keys()))
+    all_classes = sorted(results['heats_by_class'].keys(), key=lambda x: (x is None, x))
 
     if all_classes:
         payload.append([rhapi.__('Class Leaderboards')])
 
         # move unclassified heats to end
-        all_classes.append(all_classes.pop(all_classes.index(RHUtils.CLASS_ID_NONE)))
+        if RHUtils.CLASS_ID_NONE in all_classes:
+            all_classes.append(all_classes.pop(all_classes.index(RHUtils.CLASS_ID_NONE)))
 
         for class_id in all_classes:
 
