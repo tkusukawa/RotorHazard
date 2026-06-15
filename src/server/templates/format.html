@@ -3250,7 +3250,8 @@
 		$('button#restore_database').click(function (event) {
 			$.magnificPopup.close();
 			var data = {
-				backup_file: $('#database_list').val()
+				backup_file: $('#database_list').val(),
+				backup_current_database: $('#restore_backup_current_database').is(':checked')
 			};
 			socket.emit('restore_database', data);
 
@@ -3279,6 +3280,28 @@
 				event_file: $('#database_list').val()
 			};
 			socket.emit('download_database', data);
+		});
+
+		$('#upload_database_file').change(function(){
+			$('#upload_database').prop('disabled', !$(this).prop('files')[0]);
+		});
+
+		$('button#upload_database').click(function (event) {
+			var upload_file = $('#upload_database_file').prop('files')[0];
+			if (upload_file) {
+				$.magnificPopup.close();
+				var data = {
+					file_name: upload_file.name,
+					source_data: upload_file
+				};
+				socket.emit('upload_database', data);
+				$('#upload_database_file').val("");
+				$('#upload_database').prop('disabled', true);
+			}
+		});
+
+		socket.on('database_upload_done', function (msg) {
+			push_message(__('Event database uploaded') + ': ' + msg.file_name);
 		});
 
 		socket.on('reset_confirm', function () {
@@ -3706,6 +3729,7 @@
 			<button data-mfp-src="#database_restore_confirm" class="open-mfp-popup" disabled="disabled">{{ __('Restore Event') }}</button>
 			<button data-mfp-src="#database_delete_confirm" class="open-mfp-popup" disabled="disabled">{{ __('Delete Event') }}</button>
 			<button id="download_database" disabled="disabled">{{ __('Download Event Database') }}</button>
+			<button data-mfp-src="#database_upload" class="open-mfp-popup">{{ __('Upload Event Database') }}</button>
 		</div>
 
 		<div id="database_archive_new_confirm" class="priority-message-interrupt mfp-hide popup">
@@ -3738,6 +3762,14 @@
 			<h2>{{ __('Alert') }}</h2>
 			<div class="popup-content">
 				<p>{{ __('Restoring overwrites all current data. Are you sure?') }}</p>
+				<ol class="form">
+					<li>
+						<label>
+							<input type="checkbox" id="restore_backup_current_database" checked="checked">
+							{{ __('Backup current database') }}
+						</label>
+					</li>
+				</ol>
 				<p><button class="btn-danger" id="restore_database">{{ __('Restore Event') }}</button>
 				<button class="cancel">{{ __('Cancel') }}</button></p>
 			</div>
@@ -3747,6 +3779,17 @@
 			<h2>{{ __('Alert') }}</h2>
 			<div class="popup-content">
 				<p>{{ __('Data restore in progress. Please wait...') }}</p>
+			</div>
+		</div>
+
+		<div id="database_upload" class="priority-message-interrupt mfp-hide popup">
+			<h2>{{ __('Upload Event Database') }}</h2>
+			<div class="popup-content">
+				<p><label for="upload_database_file">{{ __('Event Database File') }}</label><br />
+				<input type="file" id="upload_database_file" accept=".db" /></p>
+
+				<p><button id="upload_database" disabled="disabled">{{ __('Upload Event Database') }}</button>
+				<button class="cancel">{{ __('Cancel') }}</button></p>
 			</div>
 		</div>
 

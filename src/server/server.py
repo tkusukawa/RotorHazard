@@ -1,5 +1,5 @@
 '''RotorHazard server script'''
-RELEASE_VERSION = "4.4.0kusu26-04-23" # Public release version code
+RELEASE_VERSION = "4.4.0kusu26-06-15" # Public release version code
 SERVER_API = 49 # Server API version
 NODE_API_SUPPORTED = 18 # Minimum supported node version
 NODE_API_BEST = 36 # Most recent node API
@@ -1540,6 +1540,44 @@ def on_download_database(data):
         if db_file and db_file!= '-':
             download_database(os.path.join(DB_BKP_DIR_NAME, db_file))
 
+@SOCKET_IO.on('upload_database')
+@catchLogExcWithDBWrapper
+def on_upload_database(data):
+    '''Upload event database file to db_bkp.'''
+    if type(data) is not dict or not data.get('source_data'):
+        RaceContext.rhui.emit_priority_message(__('Database upload failed. No source data.'), True, nobroadcast=True)
+        return
+
+    upload_filename = werkzeug.utils.secure_filename(data.get('file_name', ''))
+    if not upload_filename:
+        upload_filename = 'uploaded_database.db'
+
+    db_name, db_ext = os.path.splitext(upload_filename)
+    if db_ext.lower() != '.db':
+        RaceContext.rhui.emit_priority_message(__('Database upload failed. Only .db files are supported.'), True, nobroadcast=True)
+        return
+
+    try:
+        if not os.path.exists(DB_BKP_DIR_NAME):
+            os.makedirs(DB_BKP_DIR_NAME)
+        RHUtils.checkSetFileOwnerPi(DB_BKP_DIR_NAME)
+
+        upload_path = os.path.join(DB_BKP_DIR_NAME, upload_filename)
+        if os.path.exists(upload_path):
+            upload_filename = '{}_{}{}'.format(db_name, datetime.now().strftime('%Y%m%d_%H%M%S'), db_ext)
+            upload_path = os.path.join(DB_BKP_DIR_NAME, upload_filename)
+
+        with open(upload_path, mode='wb') as file_obj:
+            file_obj.write(data['source_data'])
+
+        RHUtils.checkSetFileOwnerPi(upload_path)
+        logger.info('Uploaded event database file to: {}'.format(upload_path))
+        emit('database_upload_done', {'file_name': upload_filename})
+        on_list_backups()
+    except Exception:
+        logger.exception('Error uploading event database file')
+        RaceContext.rhui.emit_priority_message(__('Database upload failed. (See log)'), True, nobroadcast=True)
+
 def download_database(db_file):
     # read DB data and convert to Base64
     with open(db_file, mode='rb') as file_obj:
@@ -1610,21 +1648,53 @@ def restore_database_file(db_file_name):
         start_background_threads(True)
         return success
 
+def recreate_database_files(with_backup=False):
+    '''Close, optionally backup, then recreate the active database files.'''
+    logger.info('Recreating active database files, with_backup={}'.format(with_backup))
+
+    if with_backup:
+        if not RaceContext.rhdata.backup_db_file(True):
+            logger.warning('Unable to backup database before recreating database files')
+            return False
+        on_list_backups()
+
+    RaceContext.rhdata.close()
+    Database.close_database()
+
+    for db_path in [DB_FILE_NAME, DB_FILE_NAME + '-shm', DB_FILE_NAME + '-wal']:
+        try:
+            if os.path.exists(db_path):
+                os.remove(db_path)
+                logger.info('Deleted database file: {}'.format(db_path))
+        except Exception:
+            logger.exception('Error deleting database file: {}'.format(db_path))
+            return False
+
+    if not db_init():
+        logger.warning('Unable to recreate database files')
+        return False
+
+    return True
+
 @SOCKET_IO.on('restore_database')
 @catchLogExcWithDBWrapper
 def on_restore_database(data):
     '''Restore database.'''
     success = None
+    backup_file = None
     if 'backup_file' in data:
         backup_file = data['backup_file']
         backup_path = DB_BKP_DIR_NAME + '/' + backup_file
 
         if os.path.exists(backup_path):
             logger.info('Found {0}: starting restoration...'.format(backup_file))
-            success = restore_database_file(backup_path)
-            Events.trigger(Evt.DATABASE_RESTORE, {
-                'file_name': backup_file,
-                })
+            recreate_success = recreate_database_files(data.get('backup_current_database'))
+            success = recreate_success and restore_database_file(backup_path)
+
+            if success:
+                Events.trigger(Evt.DATABASE_RESTORE, {
+                    'file_name': backup_file,
+                    })
 
             SOCKET_IO.emit('database_restore_done')
         else:
@@ -3135,13 +3205,15 @@ def assign_frequencies():
 
 def db_init(nofill=False):
     '''Initialize database.'''
-    RaceContext.rhdata.db_init(nofill)
+    if not RaceContext.rhdata.db_init(nofill):
+        return False
     RaceContext.race.reset_current_laps()
     RaceContext.race.format = RaceContext.rhdata.get_first_raceFormat()
     RaceContext.rhui.emit_current_laps()
     assign_frequencies()
     Events.trigger(Evt.DATABASE_INITIALIZE)
     logger.info('Database initialized')
+    return True
 
 def db_reset():
     '''Resets database.'''
