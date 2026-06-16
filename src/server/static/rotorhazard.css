@@ -1006,6 +1006,36 @@ main.page-home {
 	text-align: left;
 }
 
+.pilot-results-scroll {
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	padding-bottom: 0.5rem;
+	scrollbar-gutter: stable;
+}
+
+.pilot-results-summary th,
+.pilot-results-summary td,
+.pilot-heat-results th,
+.pilot-heat-results td {
+	border-left: solid 0.0625em #c8c8c8;
+	border-right: solid 0.0625em #c8c8c8;
+}
+
+.pilot-heat-results th:first-child {
+	text-align: left;
+	white-space: nowrap;
+}
+
+.pilot-heat-results .lap-time {
+	min-width: 6.5em;
+	white-space: nowrap;
+}
+
+.pilot-heat-results .lap-time-total {
+	font-weight: normal;
+}
+
 .node {
 	box-sizing: border-box;
 	min-width: 7em;

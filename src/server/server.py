@@ -478,6 +478,15 @@ def render_results():
     '''Route to round summary page.'''
     return render_template('results.html')
 
+@APP.route('/results/pilot/<int:pilot_id>')
+def render_pilot_results(pilot_id):
+    '''Route to pilot results page.'''
+    pilot = RaceContext.rhdata.get_pilot(pilot_id)
+    if not pilot:
+        abort(404)
+
+    return render_template('pilotresults.html', pilot=pilot)
+
 @APP.route('/run')
 @requires_auth
 def render_run():

@@ -161,7 +161,7 @@
 			function build_heat_summary_panel(panel_id, heat) {
 				var heat_leaderboard = $('<div class="leaderboard">');
 				heat_leaderboard.attr('id', panel_id + '_leaderboard');
-				heat_leaderboard.append(build_leaderboard(heat.leaderboard[heat.leaderboard.meta.primary_leaderboard], 'heat', heat.leaderboard.meta, true));
+				heat_leaderboard.append(build_leaderboard(heat.leaderboard[heat.leaderboard.meta.primary_leaderboard], 'heat', leaderboard_meta_with_context(heat.leaderboard.meta, 'results'), true));
 				return heat_leaderboard;
 			}
 
@@ -171,7 +171,7 @@
 				var round_content = $('<div class="panel-content">');
 				// race leaderboards
 				var race_leaderboard = $('<div class="leaderboard">');
-				race_leaderboard.append(build_leaderboard(round.leaderboard[round.leaderboard.meta.primary_leaderboard], 'round', round.leaderboard.meta));
+				race_leaderboard.append(build_leaderboard(round.leaderboard[round.leaderboard.meta.primary_leaderboard], 'round', leaderboard_meta_with_context(round.leaderboard.meta, 'results')));
 
 				var race_results = $('<div class="race-results">');
 
@@ -196,13 +196,13 @@
 							if (!lap.deleted) {
 								if (lap_index) {
 									if ('start_behavior' in round.leaderboard.meta && round.leaderboard.meta.start_behavior == 2) {
-										var timestamp = formatTimeMillis(lap.lap_time_stamp - node.laps[0].lap_time_stamp, {{ getOption('timeFormat')|tojson }}) + ' / ' + formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }})
+										var timestamp = formatDisplayTime(formatTimeMillis(lap.lap_time_stamp - node.laps[0].lap_time_stamp, {{ getOption('timeFormat')|tojson }}) + ' / ' + formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }}))
 									} else {
-										var timestamp = formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }})
+										var timestamp = formatDisplayTime(formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }}))
 									}
-									tbody.append('<tr class="lap_' + lap_index + '"><td>' + lap_index + '</td><td><span class="from_start">' + timestamp + '</span>' + formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }}) + '</td></tr>')
+									tbody.append('<tr class="lap_' + lap_index + '"><td>' + lap_index + '</td><td><span class="from_start">' + timestamp + '</span>' + formatDisplayTime(formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }})) + '</td></tr>')
 								} else {
-									tbody.append('<tr class="lap_0"><td>0</td><td>' + formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }}) + '</td></tr>')
+									tbody.append('<tr class="lap_0"><td>0</td><td>' + formatDisplayTime(formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }})) + '</td></tr>')
 								}
 								lap_index++;
 							}
@@ -222,6 +222,7 @@
 
 			function leaderboard_meta_with_context(meta, context) {
 				return Object.assign({}, meta, {
+					pilot_results_base_url: '/results/pilot/',
 					source_display_context: context
 				});
 			}
@@ -238,6 +239,7 @@
 			defaultMeta.team_racing_mode = RACING_MODE_INDV;
 			defaultMeta.start_behavior = 0;
 			defaultMeta.consecutives_count = msg.consecutives_count;
+			defaultMeta.pilot_results_base_url = '/results/pilot/';
 
 			var page = $('#results');
 			page.empty();

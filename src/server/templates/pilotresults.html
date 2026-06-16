@@ -1,0 +1,262 @@
+{% extends "layout.html" %} {% block title %}{{ __('Pilot Results') }}{% endblock %} {% block content %}
+<script type="text/javascript" charset="utf-8">
+	var data_dependencies = [
+		'all_languages',
+		'language',
+		'result_data',
+	];
+
+	$(document).ready(function () {
+		socket.on('language', function (msg) {
+			if (msg.language) {
+				rotorhazard.interface_language = msg.language;
+			}
+		});
+
+		socket.on('result_data', function (msg) {
+			var pilot_id = parseInt($('#pilot-results').data('pilot-id'));
+
+			function find_pilot_result(leaderboard) {
+				if (!leaderboard) {
+					return null;
+				}
+
+				for (var i in leaderboard) {
+					if (leaderboard[i].pilot_id == pilot_id) {
+						return leaderboard[i];
+					}
+				}
+
+				return null;
+			}
+
+			function display_value(value) {
+				if (value === null || value === undefined || value === '' || value === '0:00.000' || value === '00.000' || value === '0.000') {
+					return '\u2014';
+				}
+
+				if (typeof formatDisplayTime === 'function') {
+					return formatDisplayTime(value);
+				}
+
+				return value;
+			}
+
+			function build_summary_row(label, leaderboard) {
+				var race_result = find_pilot_result(leaderboard?.by_race_time);
+				var fastest_result = find_pilot_result(leaderboard?.by_fastest_lap) || race_result;
+				var consecutives_result = find_pilot_result(leaderboard?.by_consecutives) || race_result;
+
+				if (!race_result && !fastest_result && !consecutives_result) {
+					return null;
+				}
+
+				var row = $('<tr>');
+				row.append($('<th scope="row">').text(label));
+				row.append($('<td>').text(display_value(race_result?.starts)));
+				row.append($('<td>').text(display_value(race_result?.laps)));
+				row.append($('<td>').text(display_value(race_result?.total_time)));
+				row.append($('<td>').text(display_value(race_result?.average_lap)));
+				row.append($('<td>').text(display_value(fastest_result?.fastest_lap)));
+
+				if (consecutives_result?.consecutives_base && consecutives_result?.consecutives) {
+					row.append($('<td>').text(consecutives_result.consecutives_base + '/' + display_value(consecutives_result.consecutives)));
+				} else {
+					row.append($('<td>').text('\u2014'));
+				}
+
+				return row;
+			}
+
+			function find_round_result(round) {
+				return find_pilot_result(round?.leaderboard?.[round.leaderboard.meta.primary_leaderboard]);
+			}
+
+			function find_round_node(round, result) {
+				if (!round || !result) {
+					return null;
+				}
+
+				for (var node_i in round.nodes) {
+					var node = round.nodes[node_i];
+					if (node.callsign == result.callsign) {
+						return node;
+					}
+				}
+
+				return null;
+			}
+
+			function build_lap_cell(lap_time, total_time) {
+				var cell = $('<td class="lap-time">');
+				if (total_time !== null && total_time !== undefined && total_time !== '') {
+					cell.append($('<span class="from_start lap-time-total">').text(display_value(total_time)));
+				}
+				cell.append($('<span class="lap-time-current">').text(display_value(lap_time)));
+				return cell;
+			}
+
+			function build_heat_result_rows(msg) {
+				var rows = [];
+				var max_laps = 0;
+
+				for (var class_id in msg.heats_by_class) {
+					var race_class = msg.classes[class_id];
+					var class_label = race_class?.name ? race_class.name : (class_id == 0 ? __('Unclassified') : __('Class') + ' ' + class_id);
+					var heat_ids = msg.heats_by_class[class_id];
+
+					for (var heat_i in heat_ids) {
+						var heat = msg.heats[heat_ids[heat_i]];
+						if (!heat) {
+							continue;
+						}
+
+						for (var round_i in heat.rounds) {
+							var round = heat.rounds[round_i];
+							var result = find_round_result(round);
+							if (!result) {
+								continue;
+							}
+
+							var node = find_round_node(round, result);
+							var laps = [];
+							var start_behavior = round.leaderboard?.meta?.start_behavior;
+
+							if (node) {
+								var start_lap_time_stamp = node.laps?.[0]?.lap_time_stamp || 0;
+								for (var lap_i in node.laps) {
+									var lap = node.laps[lap_i];
+									if (!lap.deleted) {
+										var total_time = '';
+										if (start_behavior == 2) {
+											total_time = formatTimeMillis(lap.lap_time_stamp - start_lap_time_stamp, {{ getOption('timeFormat')|tojson }}) + ' / ' + formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }});
+										} else {
+											total_time = formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }});
+										}
+										laps.push({
+											lap_time: formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }}),
+											total_time: total_time
+										});
+									}
+								}
+							}
+
+							max_laps = Math.max(max_laps, laps.length);
+							rows.push({
+								label: class_label + ' / R' + round.id + ' / ' + heat.displayname,
+								position: result.position,
+								laps_count: result.laps,
+								total_time: result.total_time,
+								fastest_lap: result.fastest_lap,
+								laps: laps
+							});
+						}
+					}
+				}
+
+				return {
+					rows: rows,
+					max_laps: max_laps
+				};
+			}
+
+			function build_heat_results_table(msg) {
+				var heat_results = build_heat_result_rows(msg);
+				if (!heat_results.rows.length) {
+					return $('<p class="form-note">' + __('There is no saved race data available to view.') + '</p>');
+				}
+
+				var table = $('<table class="leaderboard pilot-heat-results">');
+				var thead = $('<thead>');
+				var header_row = $('<tr>');
+				header_row.append('<th class="race_class">クラス / R# / ヒート名</th>');
+				header_row.append('<th class="pos">ヒート内順位</th>');
+				header_row.append('<th class="laps">周回数</th>');
+				header_row.append('<th class="total">トータルタイム</th>');
+				header_row.append('<th class="fast">最速ラップ</th>');
+				for (var lap_idx = 0; lap_idx < heat_results.max_laps; lap_idx++) {
+					header_row.append($('<th class="lap-time">').text(lap_idx == 0 ? '0周 (HS)' : lap_idx + '周'));
+				}
+				thead.append(header_row);
+				table.append(thead);
+
+				var tbody = $('<tbody>');
+				for (var row_i in heat_results.rows) {
+					var row_data = heat_results.rows[row_i];
+					var row = $('<tr>');
+					row.append($('<th scope="row">').text(row_data.label));
+					row.append($('<td>').text(display_value(row_data.position)));
+					row.append($('<td>').text(display_value(row_data.laps_count)));
+					row.append($('<td>').text(display_value(row_data.total_time)));
+					row.append($('<td>').text(display_value(row_data.fastest_lap)));
+
+					for (var lap_i = 0; lap_i < heat_results.max_laps; lap_i++) {
+						var lap = row_data.laps[lap_i];
+						if (lap) {
+							row.append(build_lap_cell(lap.lap_time, lap.total_time));
+						} else {
+							row.append(build_lap_cell(null, null));
+						}
+					}
+
+					tbody.append(row);
+				}
+
+				table.append(tbody);
+				return $('<div class="responsive-wrap pilot-results-scroll">').append(table);
+			}
+
+			var table = $('<table class="leaderboard pilot-results-summary">');
+			var thead = $('<thead>');
+			var header_row = $('<tr>');
+			header_row.append('<th class="race_class">' + __('Class') + '</th>');
+			header_row.append('<th class="starts">ヒート数</th>');
+			header_row.append('<th class="laps">周回数</th>');
+			header_row.append('<th class="total">トータルタイム</th>');
+			header_row.append('<th class="avg">平均ラップ</th>');
+			header_row.append('<th class="fast">最速ラップ</th>');
+			header_row.append('<th class="consecutive">連続最速ラップ</th>');
+			thead.append(header_row);
+			table.append(thead);
+
+			var tbody = $('<tbody>');
+			for (var class_id in msg.classes) {
+				var race_class = msg.classes[class_id];
+				var class_label = race_class.name ? race_class.name : __('Class') + ' ' + race_class.id;
+				var row = build_summary_row(class_label, race_class.leaderboard);
+				if (row) {
+					tbody.append(row);
+				}
+			}
+
+			var event_row = build_summary_row('全クラス', msg.event_leaderboard);
+			if (event_row) {
+				event_row.addClass('summary-total');
+				tbody.append(event_row);
+			}
+
+			var output = $('#pilot-results');
+			output.empty();
+
+			if (tbody.children().length) {
+				table.append(tbody);
+				output.append($('<div class="responsive-wrap pilot-results-scroll">').append(table));
+				output.append('<h2>ヒート別結果</h2>');
+				output.append(build_heat_results_table(msg));
+			} else {
+				output.append('<p class="form-note">' + __('There is no saved race data available to view.') + '</p>');
+			}
+		});
+	});
+</script>
+<main class="page-pilot-results">
+
+<div id="section-pilot-results">
+	<h1>{{ __('Pilot Results') }}: {{ pilot.display_name }}</h1>
+	<div id="pilot-results" data-pilot-id="{{ pilot.id }}">
+		<p class="form-note">{{ __('Pilot results will be shown here.') }}</p>
+	</div>
+</div>
+
+</main>
+{% endblock %}

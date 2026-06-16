@@ -86,6 +86,22 @@ function formatTimeMillis(s, timeformat='{m}:{s}.{d}') {
 	return formatted_time;
 }
 
+function formatDisplayTime(value) {
+	if (typeof value !== 'string') {
+		return value;
+	}
+
+	return value.replace(/(^| \/ )0:(\d)/g, '$1$2').replace(/(^| \/ )0(?=\d)/g, '$1');
+}
+
+function formatLeaderboardTime(value) {
+	if (!value || value == '0:00.000' || value == '00.000' || value == '0.000') {
+		return '&#8212;';
+	}
+
+	return formatDisplayTime(value);
+}
+
 function colorvalToHex(color) {
 	return '#' + pad(color.toString(16), 6);
 }
@@ -1791,6 +1807,22 @@ function format_leaderboard_source(source, meta) {
 	return parts.length ? parts.join(' / ') : 'None';
 }
 
+function build_leaderboard_pilot_cell(result, meta) {
+	var pilot_cell = $('<td class="pilot">');
+	var callsign = result.callsign;
+
+	if (meta && meta.pilot_results_base_url && result.pilot_id) {
+		var pilot_link = $('<a>');
+		pilot_link.attr('href', meta.pilot_results_base_url + result.pilot_id);
+		pilot_link.text(callsign);
+		pilot_cell.append(pilot_link);
+	} else {
+		pilot_cell.text(callsign);
+	}
+
+	return pilot_cell;
+}
+
 function build_leaderboard(leaderboard, display_type, meta, display_starts=false) {
 	if (typeof(display_type) === 'undefined')
 		var display_type = 'by_race_time';
@@ -1864,7 +1896,7 @@ function build_leaderboard(leaderboard, display_type, meta, display_starts=false
 		var row = $('<tr>');
 
 		row.append('<td class="pos">'+ (leaderboard[i].position != null ? leaderboard[i].position : '-') +'</td>');
-		row.append('<td class="pilot">'+ leaderboard[i].callsign +'</td>');
+		row.append(build_leaderboard_pilot_cell(leaderboard[i], meta));
 		if (meta.team_racing_mode == RACING_MODE_TEAM) {
 			row.append('<td class="team">'+ leaderboard[i].team_name +'</td>');
 		}
@@ -1885,13 +1917,11 @@ function build_leaderboard(leaderboard, display_type, meta, display_starts=false
 			} else {
 				var lap = leaderboard[i].total_time;
 			}
-			if (!lap || lap == '0:00.000')
-				lap = '&#8212;';
+			lap = formatLeaderboardTime(lap);
 			row.append('<td class="total">'+ lap +'</td>');
 
 			var lap = leaderboard[i].average_lap;
-			if (!lap || lap == '0:00.000')
-				lap = '&#8212;';
+			lap = formatLeaderboardTime(lap);
 			row.append('<td class="avg">'+ lap +'</td>');
 		}
 		if (display_type == 'by_fastest_lap' ||
@@ -1899,8 +1929,7 @@ function build_leaderboard(leaderboard, display_type, meta, display_starts=false
 		display_type == 'round' ||
 		display_type == 'current') {
 			var lap = leaderboard[i].fastest_lap;
-			if (!lap || lap == '0:00.000')
-				lap = '&#8212;';
+			lap = formatLeaderboardTime(lap);
 
 			var el = $('<td class="fast">'+ lap +'</td>');
 
@@ -1933,7 +1962,7 @@ function build_leaderboard(leaderboard, display_type, meta, display_starts=false
 			if (!data.consecutives || data.consecutives == '0:00.000') {
 				lap = '&#8212;';
 			} else {
-				lap = data.consecutives_base + '/' + data.consecutives;
+				lap = data.consecutives_base + '/' + formatDisplayTime(data.consecutives);
 			}
 
 			var el = $('<td class="consecutive">'+ lap +'</td>');
@@ -2012,20 +2041,17 @@ function build_team_leaderboard(leaderboard, display_type, meta) {
 			row.append('<td class="laps">'+ lap +'</td>');
 
 			var lap = leaderboard[i].average_lap;
-			if (!lap || lap == '0:00.000')
-				lap = '&#8212;';
+			lap = formatLeaderboardTime(lap);
 			row.append('<td class="total">'+ lap +'</td>');
 		}
 		if (display_type == 'by_avg_fastest_lap') {
 			var lap = leaderboard[i].average_fastest_lap;
-			if (!lap || lap == '0:00.000')
-				lap = '&#8212;';
+			lap = formatLeaderboardTime(lap);
 			row.append('<td class="fast">'+ lap +'</td>');
 		}
 		if (display_type == 'by_avg_consecutives') {
 			var lap = leaderboard[i].average_consecutives;
-			if (!lap || lap == '0:00.000')
-				lap = '&#8212;';
+			lap = formatLeaderboardTime(lap);
 			row.append('<td class="consecutive">'+ lap +'</td>');
 		}
 
