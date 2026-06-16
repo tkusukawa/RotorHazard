@@ -158,6 +158,82 @@
 				return boards;
 			}
 
+			function build_heat_summary_panel(panel_id, heat) {
+				var heat_leaderboard = $('<div class="leaderboard">');
+				heat_leaderboard.attr('id', panel_id + '_leaderboard');
+				heat_leaderboard.append(build_leaderboard(heat.leaderboard[heat.leaderboard.meta.primary_leaderboard], 'heat', heat.leaderboard.meta, true));
+				return heat_leaderboard;
+			}
+
+			function build_round_results_panel(panel_id, round) {
+				var round_div = $('<div id="' + panel_id + '" class="round panel collapsing open">');
+
+				var round_content = $('<div class="panel-content">');
+				// race leaderboards
+				var race_leaderboard = $('<div class="leaderboard">');
+				race_leaderboard.append(build_leaderboard(round.leaderboard[round.leaderboard.meta.primary_leaderboard], 'round', round.leaderboard.meta));
+
+				var race_results = $('<div class="race-results">');
+
+				// race laps
+				for (var node_i in round.nodes) {
+					var node = round.nodes[node_i];
+					if (node.callsign !== null) {
+						var node_div = $('<div class="node">');
+
+						node_div.append('<h5>' + node.callsign + '</h5>')
+
+						var table = $('<table class="laps">');
+						var tbody = $('<tbody>');
+
+						if ('start_behavior' in round.leaderboard.meta && round.leaderboard.meta.start_behavior == 1) {
+							var lap_index = 1;
+						} else {
+							var lap_index = 0;
+						}
+						for (var lap_i in node.laps) {
+							var lap = node.laps[lap_i];
+							if (!lap.deleted) {
+								if (lap_index) {
+									if ('start_behavior' in round.leaderboard.meta && round.leaderboard.meta.start_behavior == 2) {
+										var timestamp = formatTimeMillis(lap.lap_time_stamp - node.laps[0].lap_time_stamp, {{ getOption('timeFormat')|tojson }}) + ' / ' + formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }})
+									} else {
+										var timestamp = formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }})
+									}
+									tbody.append('<tr class="lap_' + lap_index + '"><td>' + lap_index + '</td><td><span class="from_start">' + timestamp + '</span>' + formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }}) + '</td></tr>')
+								} else {
+									tbody.append('<tr class="lap_0"><td>0</td><td>' + formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }}) + '</td></tr>')
+								}
+								lap_index++;
+							}
+						}
+
+						table.append(tbody);
+						node_div.append(table);
+						race_results.append(node_div);
+					}
+				}
+
+				round_content.append(race_leaderboard);
+				round_content.append(race_results);
+				round_div.append(round_content);
+				return round_div;
+			}
+
+			function leaderboard_meta_with_context(meta, context) {
+				return Object.assign({}, meta, {
+					source_display_context: context
+				});
+			}
+
+			function format_start_time_minute(start_time) {
+				if (!start_time) {
+					return '';
+				}
+
+				return String(start_time).replace(/(^.*:\d{2}):\d{2}(?:\.\d+)?(\s*(?:AM|PM))?$/i, '$1$2');
+			}
+
 			var defaultMeta = new Object;
 			defaultMeta.team_racing_mode = RACING_MODE_INDV;
 			defaultMeta.start_behavior = 0;
@@ -196,19 +272,19 @@
 								class_panel_header.append('<h2><button class="no-style">' + __('Class') + ' ' + current_class.id + '</button></h2>');
 							}
 
-							var class_leaderboard = $('<div id="class_' + class_id + '_leaderboard" class="panel collapsing class-leaderboard open">');
+							var class_leaderboard = $('<div id="class_' + class_id + '_leaderboard" class="panel collapsing class-leaderboard">');
 
 							var class_leaderboard_header = $('<div class="panel-header">');
 							class_leaderboard_header.append('<h3><button class="no-style">' + __('Class Summary') + '</button></h3>');
 							class_leaderboard.append(class_leaderboard_header);
 
-							var class_leaderboard_content = $('<div class="panel-content">');
+							var class_leaderboard_content = $('<div class="panel-content" style="display: none">');
 
 							if (current_class.ranking) {
 								class_leaderboard.removeClass('open');
 								class_leaderboard_content.hide();
 
-								var class_special = $('<div id="class_' + class_id + '_leaderboard" class="panel collapsing class-leaderboard open">');
+								var class_special = $('<div id="class_' + class_id + '_leaderboard" class="panel collapsing class-leaderboard">');
 
 								var class_special_header = $('<div class="panel-header">');
 								var class_header_text = __('Class Ranking');
@@ -218,7 +294,7 @@
 								class_special_header.append('<h3><button class="no-style">' + class_header_text + '</button></h3>');
 								class_special.append(class_special_header);
 
-								var class_special_content = $('<div class="panel-content">');
+								var class_special_content = $('<div class="panel-content" style="display: none">');
 
 								class_special_content.append(build_ranking(current_class.ranking))
 
@@ -227,17 +303,18 @@
 							}
 
 							boards = order_boards(current_class.leaderboard.meta.primary_leaderboard);
+							var class_leaderboard_meta = leaderboard_meta_with_context(current_class.leaderboard.meta, 'results');
 
 							for (var i in boards) {
 								if (boards[i] == 'by_race_time') {
 									class_leaderboard_content.append('<h4>' + __('Race Totals') + '</h4>');
-									class_leaderboard_content.append(build_leaderboard(current_class.leaderboard.by_race_time, 'by_race_time', current_class.leaderboard.meta, true));
+									class_leaderboard_content.append(build_leaderboard(current_class.leaderboard.by_race_time, 'by_race_time', class_leaderboard_meta, true));
 								} else if (boards[i] == 'by_fastest_lap') {
 									class_leaderboard_content.append('<h4>' + __('Fastest Laps') + '</h4>');
-									class_leaderboard_content.append(build_leaderboard(current_class.leaderboard.by_fastest_lap, 'by_fastest_lap', current_class.leaderboard.meta, true));
+									class_leaderboard_content.append(build_leaderboard(current_class.leaderboard.by_fastest_lap, 'by_fastest_lap', class_leaderboard_meta, true));
 								} else if (boards[i] == 'by_consecutives') {
 									class_leaderboard_content.append('<h4>' + __('Fastest Consecutive Laps') + '</h4>');
-									class_leaderboard_content.append(build_leaderboard(current_class.leaderboard.by_consecutives, 'by_consecutives', current_class.leaderboard.meta, true));
+									class_leaderboard_content.append(build_leaderboard(current_class.leaderboard.by_consecutives, 'by_consecutives', class_leaderboard_meta, true));
 								}
 							}
 
@@ -253,93 +330,92 @@
 
 						class_panel.append(class_panel_header);
 
+						var rounds_by_id = {};
+						var round_order = [];
+						var heat_summaries = [];
+
 						for (var class_heat in msg.heats_by_class[race_class]) {
-							var heat = msg.heats[msg.heats_by_class[race_class][class_heat]]
+							var heat = msg.heats[msg.heats_by_class[race_class][class_heat]];
 
 							if (heat) {
-								var panel = $('<div id="class_' + class_id + '_heat_' + class_heat + '" class="panel collapsing">');
-
-								var panel_header = $('<div class="panel-header">');
-
-								panel_header.append('<h3><button class="no-style">' + heat.displayname + '</button></h3>');
-								panel.append(panel_header);
-
-								var panel_content = $('<div class="panel-content" style="display: none">');
-
-								// heat leaderboards
 								if (heat.rounds.length > 1) {
-									var heat_summary_panel = $('<div id="class_' + class_id + '_heat_' + class_heat + '_leaderboard" class="panel collapsing open">');
-									heat_summary_panel.append('<div class="panel-header"><h4><button class="no-style">' + __('Heat Summary') + '</button></h4></div>')
-									var heat_summary_panel_content = $('<div class="panel-content">');
-									var heat_leaderboard = $('<div class="leaderboard">');
-									heat_leaderboard.append(build_leaderboard(heat.leaderboard[heat.leaderboard.meta.primary_leaderboard], 'heat', heat.leaderboard.meta, true));
-									heat_summary_panel_content.append(heat_leaderboard);
-									heat_summary_panel.append(heat_summary_panel_content);
-									panel_content.append(heat_summary_panel);
+									heat_summaries.push({
+										heat: heat,
+										heat_index: class_heat
+									});
 								}
 
-								// rounds
 								for (var round_i in heat.rounds) {
 									var round = heat.rounds[round_i];
-									var round_div = $('<div id="class_' + class_id + '_heat_' + class_heat + '_round_' + round.id + '" class="round panel collapsing open">');
 
-									round_div.append('<div class="panel-header"><h4><button class="no-style">' + __('Round') + ' ' + round.id + ' (' + round.start_time_formatted + ')</button></h4></div>')
-
-									var round_content = $('<div class="panel-content">');
-									// race leaderboards
-									var race_leaderboard = $('<div class="leaderboard">');
-									race_leaderboard.append(build_leaderboard(round.leaderboard[round.leaderboard.meta.primary_leaderboard], 'round', round.leaderboard.meta));
-
-									var race_results = $('<div class="race-results">');
-
-									// race laps
-									for (var node_i in round.nodes) {
-										var node = round.nodes[node_i];
-										if (node.callsign !== null) {
-											var node_div = $('<div class="node">');
-
-											node_div.append('<h5>' + node.callsign + '</h5>')
-
-											var table = $('<table class="laps">');
-											var tbody = $('<tbody>');
-
-											if ('start_behavior' in round.leaderboard.meta && round.leaderboard.meta.start_behavior == 1) {
-												var lap_index = 1;
-											} else {
-												var lap_index = 0;
-											}
-											for (var lap_i in node.laps) {
-												var lap = node.laps[lap_i];
-												if (!lap.deleted) {
-													if (lap_index) {
-														if ('start_behavior' in round.leaderboard.meta && round.leaderboard.meta.start_behavior == 2) {
-															var timestamp = formatTimeMillis(lap.lap_time_stamp - node.laps[0].lap_time_stamp, {{ getOption('timeFormat')|tojson }}) + ' / ' + formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }})
-														} else {
-															var timestamp = formatTimeMillis(lap.lap_time_stamp, {{ getConfig('UI', 'timeFormat')|tojson }})
-														}
-														tbody.append('<tr class="lap_' + lap_index + '"><td>' + lap_index + '</td><td><span class="from_start">' + timestamp + '</span>' + formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }}) + '</td></tr>')
-													} else {
-														tbody.append('<tr class="lap_0"><td>0</td><td>' + formatTimeMillis(lap.lap_time, {{ getConfig('UI', 'timeFormat')|tojson }}) + '</td></tr>')
-													}
-													lap_index++;
-												}
-											}
-
-											table.append(tbody);
-											node_div.append(table);
-											race_results.append(node_div);
-										}
+									if (!(round.id in rounds_by_id)) {
+										rounds_by_id[round.id] = [];
+										round_order.push(round.id);
 									}
 
-									round_content.append(race_leaderboard);
-									round_content.append(race_results);
-									round_div.append(round_content);
-									panel_content.append(round_div);
+									rounds_by_id[round.id].push({
+										heat: heat,
+										heat_index: class_heat,
+										round: round
+									});
 								}
-								panel.append(panel_content);
-
-								class_panel_content.append(panel);
 							}
+						}
+
+						if (heat_summaries.length) {
+							var heat_summaries_panel = $('<div id="class_' + class_id + '_heat_summaries" class="panel collapsing">');
+							var heat_summaries_header = $('<div class="panel-header">');
+							heat_summaries_header.append('<h3><button class="no-style">ヒート概要</button></h3>');
+							heat_summaries_panel.append(heat_summaries_header);
+
+							var heat_summaries_content = $('<div class="panel-content" style="display: none">');
+
+							for (var heat_summary_i in heat_summaries) {
+								var heat_summary = heat_summaries[heat_summary_i];
+								var heat_panel_id = 'class_' + class_id + '_heat_' + heat_summary.heat_index;
+								var heat_panel = $('<div id="' + heat_panel_id + '" class="panel collapsing">');
+								var heat_panel_header = $('<div class="panel-header">');
+								heat_panel_header.append('<h4><button class="no-style">' + heat_summary.heat.displayname + '</button></h4>');
+								heat_panel.append(heat_panel_header);
+
+								var heat_panel_content = $('<div class="panel-content" style="display: none">');
+								heat_panel_content.append(build_heat_summary_panel(heat_panel_id, heat_summary.heat));
+								heat_panel.append(heat_panel_content);
+								heat_summaries_content.append(heat_panel);
+							}
+
+							heat_summaries_panel.append(heat_summaries_content);
+							class_panel_content.append(heat_summaries_panel);
+						}
+
+						for (var round_order_i in round_order) {
+							var round_id = round_order[round_order_i];
+							var round_panel = $('<div id="class_' + class_id + '_round_' + round_id + '" class="panel collapsing">');
+							var round_panel_header = $('<div class="panel-header">');
+							round_panel_header.append('<h3><button class="no-style">' + __('Round') + ' ' + round_id + '</button></h3>');
+							round_panel.append(round_panel_header);
+
+							var round_panel_content = $('<div class="panel-content" style="display: none">');
+
+							for (var round_heat_i in rounds_by_id[round_id]) {
+								var heat_round = rounds_by_id[round_id][round_heat_i];
+								var heat = heat_round.heat;
+								var round = heat_round.round;
+								var heat_panel_id = 'class_' + class_id + '_round_' + round_id + '_heat_' + heat_round.heat_index;
+								var heat_panel = $('<div id="' + heat_panel_id + '" class="panel collapsing">');
+								var heat_panel_header = $('<div class="panel-header">');
+
+								heat_panel_header.append('<h4><button class="no-style heat-round-title"><span class="heat-round-title-main">' + heat.displayname + '</span><span class="heat-round-title-round"><span class="heat-round-title-time">' + format_start_time_minute(round.start_time_formatted) + '</span> (R' + round.id + ')</span></button></h4>');
+								heat_panel.append(heat_panel_header);
+
+								var heat_panel_content = $('<div class="panel-content" style="display: none">');
+								heat_panel_content.append(build_round_results_panel(heat_panel_id + '_round_' + round.id, round));
+								heat_panel.append(heat_panel_content);
+								round_panel_content.append(heat_panel);
+							}
+
+							round_panel.append(round_panel_content);
+							class_panel_content.append(round_panel);
 						}
 						class_panel.append(class_panel_content);
 						page.append(class_panel);
@@ -356,12 +432,13 @@
 				// event leaderboards
 				var panel_content = $('<div class="panel-content" style="display: none">');
 				var event_leaderboard = $('<div class="event-leaderboards">');
+				var event_leaderboard_meta = leaderboard_meta_with_context(msg.event_leaderboard.meta, 'results');
 				event_leaderboard.append('<h3>' + __('Race Totals') + '</h3>');
-				event_leaderboard.append(build_leaderboard(msg.event_leaderboard.by_race_time, 'by_race_time', msg.event_leaderboard.meta, true));
+				event_leaderboard.append(build_leaderboard(msg.event_leaderboard.by_race_time, 'by_race_time', event_leaderboard_meta, true));
 				event_leaderboard.append('<h3>' + __('Fastest Laps') + '</h3>');
-				event_leaderboard.append(build_leaderboard(msg.event_leaderboard.by_fastest_lap, 'by_fastest_lap', msg.event_leaderboard.meta));
+				event_leaderboard.append(build_leaderboard(msg.event_leaderboard.by_fastest_lap, 'by_fastest_lap', event_leaderboard_meta));
 				event_leaderboard.append('<h3>' + __('Fastest Consecutive Laps') + '</h3>');
-				event_leaderboard.append(build_leaderboard(msg.event_leaderboard.by_consecutives, 'by_consecutives', msg.event_leaderboard.meta));
+				event_leaderboard.append(build_leaderboard(msg.event_leaderboard.by_consecutives, 'by_consecutives', event_leaderboard_meta));
 				panel_content.append(event_leaderboard);
 				panel.append(panel_content);
 

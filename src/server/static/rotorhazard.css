@@ -502,6 +502,15 @@ dialog > button {
 	display: flow-root;
 }
 
+#database_upload {
+	max-width: min(40em, calc(100% - 2rem));
+	width: 40em;
+}
+
+#database_upload input[type="file"] {
+	max-width: 100%;
+}
+
 .panel {
 	margin: 0;
 	padding: 0;
@@ -517,6 +526,31 @@ dialog > button {
 
 .panel-header h2 {
 	margin-bottom: 0;
+}
+
+.heat-round-title.no-style {
+	align-items: baseline;
+	display: flex;
+	gap: 1rem;
+	justify-content: space-between;
+	width: 100%;
+}
+
+.heat-round-title-main {
+	min-width: 0;
+	overflow-wrap: anywhere;
+	text-align: left;
+}
+
+.heat-round-title-time {
+	font-weight: normal;
+	white-space: nowrap;
+}
+
+.heat-round-title-round {
+	flex: 0 0 auto;
+	text-align: right;
+	white-space: nowrap;
 }
 
 .panel-content {

@@ -490,6 +490,9 @@ def _do_calc_leaderboard(racecontext, **params):
                 'heat': current_heat_id,
                 'displayname': heat_displayname,
             }
+            if current_class:
+                source['class'] = current_class.id
+                source['class_displayname'] = current_class.display_name
 
             do_gevent_sleep(0)
 
@@ -714,13 +717,23 @@ def refresh_source_displayname(racecontext, result, heat_id):
             for result_pilot in leaderboard:
                 if result_pilot['fastest_lap_source'] and result_pilot['fastest_lap_source']['heat'] == heat_id:
                     fl_heat = result_pilot['fastest_lap_source']['heat']
-                    fl_name = racecontext.rhdata.get_heat(fl_heat).display_name
-                    result_pilot['fastest_lap_source']['displayname'] = fl_name
+                    fl_heat_obj = racecontext.rhdata.get_heat(fl_heat)
+                    result_pilot['fastest_lap_source']['displayname'] = fl_heat_obj.display_name
+                    if fl_heat_obj.class_id:
+                        fl_class = racecontext.rhdata.get_raceClass(fl_heat_obj.class_id)
+                        if fl_class:
+                            result_pilot['fastest_lap_source']['class'] = fl_class.id
+                            result_pilot['fastest_lap_source']['class_displayname'] = fl_class.display_name
 
                 if result_pilot['consecutives_source'] and result_pilot['consecutives_source']['heat'] == heat_id:
                     cons_heat = result_pilot['consecutives_source']['heat']
-                    cons_name = racecontext.rhdata.get_heat(cons_heat).display_name
-                    result_pilot['consecutives_source']['displayname'] = cons_name
+                    cons_heat_obj = racecontext.rhdata.get_heat(cons_heat)
+                    result_pilot['consecutives_source']['displayname'] = cons_heat_obj.display_name
+                    if cons_heat_obj.class_id:
+                        cons_class = racecontext.rhdata.get_raceClass(cons_heat_obj.class_id)
+                        if cons_class:
+                            result_pilot['consecutives_source']['class'] = cons_class.id
+                            result_pilot['consecutives_source']['class_displayname'] = cons_class.display_name
     return result
 
 def add_fastest_race_lap_meta(racecontext, all_leaderboards):

@@ -1,5 +1,5 @@
 '''RotorHazard server script'''
-RELEASE_VERSION = "4.4.0kusu26-06-15" # Public release version code
+RELEASE_VERSION = "4.4.0kusu26-06-16" # Public release version code
 SERVER_API = 49 # Server API version
 NODE_API_SUPPORTED = 18 # Minimum supported node version
 NODE_API_BEST = 36 # Most recent node API
@@ -58,6 +58,7 @@ import os
 import sys
 import base64
 import subprocess
+import unicodedata
 import importlib
 # import copy
 import functools
@@ -1540,6 +1541,22 @@ def on_download_database(data):
         if db_file and db_file!= '-':
             download_database(os.path.join(DB_BKP_DIR_NAME, db_file))
 
+def sanitize_uploaded_database_filename(file_name):
+    '''Sanitize an uploaded database filename while preserving Unicode names.'''
+    upload_filename = unicodedata.normalize('NFC', str(file_name or ''))
+    upload_filename = os.path.basename(upload_filename.replace('\\', '/')).strip()
+
+    invalid_chars = set('/\\:*?"<>|')
+    upload_filename = ''.join(
+        '_' if char in invalid_chars or ord(char) < 32 else char
+        for char in upload_filename
+    ).strip()
+
+    if upload_filename in ('', '.', '..'):
+        return 'uploaded_database.db'
+
+    return upload_filename
+
 @SOCKET_IO.on('upload_database')
 @catchLogExcWithDBWrapper
 def on_upload_database(data):
@@ -1548,9 +1565,7 @@ def on_upload_database(data):
         RaceContext.rhui.emit_priority_message(__('Database upload failed. No source data.'), True, nobroadcast=True)
         return
 
-    upload_filename = werkzeug.utils.secure_filename(data.get('file_name', ''))
-    if not upload_filename:
-        upload_filename = 'uploaded_database.db'
+    upload_filename = sanitize_uploaded_database_filename(data.get('file_name', ''))
 
     db_name, db_ext = os.path.splitext(upload_filename)
     if db_ext.lower() != '.db':

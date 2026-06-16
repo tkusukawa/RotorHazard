@@ -1772,6 +1772,25 @@ jQuery(document).ready(function($){
 }
 
 /* Leaderboards */
+function format_leaderboard_source(source, meta) {
+	if (!source) {
+		return 'None';
+	}
+
+	var parts = [];
+	if (meta && meta.source_display_context == 'results' && source.class_displayname) {
+		parts.push(source.class_displayname);
+	}
+	if (source.round) {
+		parts.push('R' + source.round);
+	}
+	if (source.displayname) {
+		parts.push(source.displayname);
+	}
+
+	return parts.length ? parts.join(' / ') : 'None';
+}
+
 function build_leaderboard(leaderboard, display_type, meta, display_starts=false) {
 	if (typeof(display_type) === 'undefined')
 		var display_type = 'by_race_time';
@@ -1885,16 +1904,7 @@ function build_leaderboard(leaderboard, display_type, meta, display_starts=false
 
 			var el = $('<td class="fast">'+ lap +'</td>');
 
-			if (leaderboard[i].fastest_lap_source) {
-				var source = leaderboard[i].fastest_lap_source;
-				if (source.round) {
-					var source_text = source.displayname + ' / ' + __('Round') + ' ' + source.round;
-				} else {
-					var source_text = source.displayname;
-				}
-			} else {
-				var source_text = 'None';
-			}
+			var source_text = format_leaderboard_source(leaderboard[i].fastest_lap_source, meta);
 
 			if (display_type == 'heat') {
 				el.data('source', source_text);
@@ -1928,16 +1938,7 @@ function build_leaderboard(leaderboard, display_type, meta, display_starts=false
 
 			var el = $('<td class="consecutive">'+ lap +'</td>');
 
-			if (leaderboard[i].consecutives_source) {
-				var source = leaderboard[i].consecutives_source;
-				if (source.round) {
-					var source_text = source.displayname + ' / ' + __('Round') + ' ' + source.round;
-				} else {
-					var source_text = source.displayname;
-				}
-			} else {
-				var source_text = 'None';
-			}
+			var source_text = format_leaderboard_source(leaderboard[i].consecutives_source, meta);
 
 			if (display_type == 'heat') {
 				el.data('source', source_text);
