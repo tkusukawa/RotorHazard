@@ -96,6 +96,31 @@
 				return cell;
 			}
 
+			function get_class_round_count(msg, heat_ids) {
+				var round_ids = {};
+
+				for (var heat_i in heat_ids) {
+					var heat = msg.heats[heat_ids[heat_i]];
+					if (!heat) {
+						continue;
+					}
+
+					for (var round_i in heat.rounds) {
+						round_ids[heat.rounds[round_i].id] = true;
+					}
+				}
+
+				return Object.keys(round_ids).length;
+			}
+
+			function build_heat_label(class_label, round, heat, class_round_count) {
+				if (class_round_count == 1) {
+					return class_label + ' / ' + heat.displayname;
+				}
+
+				return class_label + ' / R' + round.id + ' / ' + heat.displayname;
+			}
+
 			function build_heat_result_rows(msg) {
 				var rows = [];
 				var max_laps = 0;
@@ -104,6 +129,7 @@
 					var race_class = msg.classes[class_id];
 					var class_label = race_class?.name ? race_class.name : (class_id == 0 ? __('Unclassified') : __('Class') + ' ' + class_id);
 					var heat_ids = msg.heats_by_class[class_id];
+					var class_round_count = get_class_round_count(msg, heat_ids);
 
 					for (var heat_i in heat_ids) {
 						var heat = msg.heats[heat_ids[heat_i]];
@@ -143,7 +169,7 @@
 
 							max_laps = Math.max(max_laps, laps.length);
 							rows.push({
-								label: class_label + ' / R' + round.id + ' / ' + heat.displayname,
+								label: build_heat_label(class_label, round, heat, class_round_count),
 								position: result.position,
 								laps_count: result.laps,
 								total_time: result.total_time,

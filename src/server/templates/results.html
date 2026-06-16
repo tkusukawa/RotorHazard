@@ -227,6 +227,33 @@
 				});
 			}
 
+			function get_class_round_count(msg, heat_ids) {
+				var round_ids = {};
+
+				for (var heat_i in heat_ids) {
+					var heat = msg.heats[heat_ids[heat_i]];
+					if (!heat) {
+						continue;
+					}
+
+					for (var round_i in heat.rounds) {
+						round_ids[heat.rounds[round_i].id] = true;
+					}
+				}
+
+				return Object.keys(round_ids).length;
+			}
+
+			function get_class_round_counts(msg) {
+				var class_round_counts = {};
+
+				for (var class_id in msg.heats_by_class) {
+					class_round_counts[class_id] = get_class_round_count(msg, msg.heats_by_class[class_id]);
+				}
+
+				return class_round_counts;
+			}
+
 			function format_start_time_minute(start_time) {
 				if (!start_time) {
 					return '';
@@ -245,6 +272,7 @@
 			page.empty();
 
 			if (!$.isEmptyObject(msg.heats)) {
+				var class_round_counts = get_class_round_counts(msg);
 				// move unclassified heats to end of list (Assumes Object.keys is ordered by ES6 rules, or as added by server)
 				var class_ordered = Object.keys(msg.heats_by_class)
 				// class_ordered = class_ordered.concat(class_ordered.splice(0, 1));
@@ -306,6 +334,7 @@
 
 							boards = order_boards(current_class.leaderboard.meta.primary_leaderboard);
 							var class_leaderboard_meta = leaderboard_meta_with_context(current_class.leaderboard.meta, 'results');
+							class_leaderboard_meta.class_round_count = class_round_counts[race_class];
 
 							for (var i in boards) {
 								if (boards[i] == 'by_race_time') {
@@ -435,6 +464,7 @@
 				var panel_content = $('<div class="panel-content" style="display: none">');
 				var event_leaderboard = $('<div class="event-leaderboards">');
 				var event_leaderboard_meta = leaderboard_meta_with_context(msg.event_leaderboard.meta, 'results');
+				event_leaderboard_meta.source_class_round_counts = class_round_counts;
 				event_leaderboard.append('<h3>' + __('Race Totals') + '</h3>');
 				event_leaderboard.append(build_leaderboard(msg.event_leaderboard.by_race_time, 'by_race_time', event_leaderboard_meta, true));
 				event_leaderboard.append('<h3>' + __('Fastest Laps') + '</h3>');

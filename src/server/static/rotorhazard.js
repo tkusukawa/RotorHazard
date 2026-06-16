@@ -1797,7 +1797,10 @@ function format_leaderboard_source(source, meta) {
 	if (meta && meta.source_display_context == 'results' && source.class_displayname) {
 		parts.push(source.class_displayname);
 	}
-	if (source.round) {
+	if (source.round && !(
+		(meta && meta.class_round_count == 1) ||
+		(meta && meta.source_class_round_counts && Object.prototype.hasOwnProperty.call(meta.source_class_round_counts, source.class) && meta.source_class_round_counts[source.class] == 1)
+	)) {
 		parts.push('R' + source.round);
 	}
 	if (source.displayname) {
