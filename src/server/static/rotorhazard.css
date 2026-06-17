@@ -508,7 +508,10 @@ dialog > button {
 }
 
 #database_upload input[type="file"] {
+	box-sizing: border-box;
+	display: block;
 	max-width: 100%;
+	width: 100%;
 }
 
 .panel {

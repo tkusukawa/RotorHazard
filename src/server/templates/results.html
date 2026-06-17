@@ -288,6 +288,14 @@
 				return String(start_time).replace(/(^.*:\d{2}):\d{2}(?:\.\d+)?(\s*(?:AM|PM))?$/i, '$1$2');
 			}
 
+			function build_heat_title(class_label, round, heat, class_round_count) {
+				if (class_round_count == 1) {
+					return class_label + ' / ' + heat.displayname;
+				}
+
+				return class_label + ' / R' + round.id + ' / ' + heat.displayname;
+			}
+
 			var defaultMeta = new Object;
 			defaultMeta.team_racing_mode = RACING_MODE_INDV;
 			defaultMeta.start_behavior = 0;
@@ -321,10 +329,13 @@
 						var class_panel_content = $('<div class="panel-content" style="display: none">');
 
 						var current_class = msg.classes[race_class];
+						var class_label = race_class == 0 ? __('Unclassified') : __('Class') + ' ' + race_class;
 						if (current_class) {
 							if (current_class.name) {
+								class_label = current_class.name;
 								class_panel_header.append('<h2><button class="no-style">' + current_class.name + '</button></h2>');
 							} else {
+								class_label = __('Class') + ' ' + current_class.id;
 								class_panel_header.append('<h2><button class="no-style">' + __('Class') + ' ' + current_class.id + '</button></h2>');
 							}
 
@@ -447,11 +458,6 @@
 
 						for (var round_order_i in round_order) {
 							var round_id = round_order[round_order_i];
-							var round_panel = $('<div id="class_' + class_id + '_round_' + round_id + '" class="panel collapsing">');
-							var round_panel_header = $('<div class="panel-header">');
-							round_panel_header.append('<h3><button class="no-style">' + __('Round') + ' ' + round_id + '</button></h3>');
-							round_panel.append(round_panel_header);
-
 							var round_panel_content = $('<div class="panel-content" style="display: none">');
 
 							for (var round_heat_i in rounds_by_id[round_id]) {
@@ -462,7 +468,7 @@
 								var heat_panel = $('<div id="' + heat_panel_id + '" class="panel collapsing">');
 								var heat_panel_header = $('<div class="panel-header">');
 
-								heat_panel_header.append('<h4><button class="no-style heat-round-title"><span class="heat-round-title-main">' + heat.displayname + '</span><span class="heat-round-title-round"><span class="heat-round-title-time">' + format_start_time_minute(round.start_time_formatted) + '</span> (R' + round.id + ')</span></button></h4>');
+								heat_panel_header.append('<h4><button class="no-style heat-round-title"><span class="heat-round-title-main">' + build_heat_title(class_label, round, heat, class_round_counts[race_class]) + '</span><span class="heat-round-title-round"><span class="heat-round-title-time">' + format_start_time_minute(round.start_time_formatted) + '</span></span></button></h4>');
 								heat_panel.append(heat_panel_header);
 
 								var heat_panel_content = $('<div class="panel-content" style="display: none">');
@@ -471,8 +477,16 @@
 								round_panel_content.append(heat_panel);
 							}
 
-							round_panel.append(round_panel_content);
-							class_panel_content.append(round_panel);
+							if (round_order.length == 1) {
+								round_panel_content.children().appendTo(class_panel_content);
+							} else {
+								var round_panel = $('<div id="class_' + class_id + '_round_' + round_id + '" class="panel collapsing">');
+								var round_panel_header = $('<div class="panel-header">');
+								round_panel_header.append('<h3><button class="no-style">' + __('Round') + ' ' + round_id + '</button></h3>');
+								round_panel.append(round_panel_header);
+								round_panel.append(round_panel_content);
+								class_panel_content.append(round_panel);
+							}
 						}
 						class_panel.append(class_panel_content);
 						page.append(class_panel);
