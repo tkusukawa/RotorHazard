@@ -121,11 +121,17 @@
 				return class_label + ' / R' + round.id + ' / ' + heat.displayname;
 			}
 
+			function build_results_heat_panel_id(class_index, round, heat_index) {
+				return 'class_' + class_index + '_round_' + round.id + '_heat_' + heat_index;
+			}
+
 			function build_heat_result_rows(msg) {
 				var rows = [];
 				var max_laps = 0;
+				var class_ordered = Object.keys(msg.heats_by_class);
 
-				for (var class_id in msg.heats_by_class) {
+				for (var class_index in class_ordered) {
+					var class_id = class_ordered[class_index];
 					var race_class = msg.classes[class_id];
 					var class_label = race_class?.name ? race_class.name : (class_id == 0 ? __('Unclassified') : __('Class') + ' ' + class_id);
 					var heat_ids = msg.heats_by_class[class_id];
@@ -170,10 +176,12 @@
 							max_laps = Math.max(max_laps, laps.length);
 							rows.push({
 								label: build_heat_label(class_label, round, heat, class_round_count),
+								target_id: build_results_heat_panel_id(class_index, round, heat_i),
 								position: result.position,
 								laps_count: result.laps,
 								total_time: result.total_time,
 								fastest_lap: result.fastest_lap,
+								average_lap: result.average_lap,
 								laps: laps
 							});
 						}
@@ -200,6 +208,7 @@
 				header_row.append('<th class="laps">周回数</th>');
 				header_row.append('<th class="total">トータルタイム</th>');
 				header_row.append('<th class="fast">最速ラップ</th>');
+				header_row.append('<th class="avg">平均ラップ</th>');
 				for (var lap_idx = 0; lap_idx < heat_results.max_laps; lap_idx++) {
 					header_row.append($('<th class="lap-time">').text(lap_idx == 0 ? '0周 (HS)' : lap_idx + '周'));
 				}
@@ -210,11 +219,18 @@
 				for (var row_i in heat_results.rows) {
 					var row_data = heat_results.rows[row_i];
 					var row = $('<tr>');
-					row.append($('<th scope="row">').text(row_data.label));
+					var label_cell = $('<th scope="row">');
+					if (row_data.target_id) {
+						label_cell.append($('<a>').attr('href', '/results#' + row_data.target_id).text(row_data.label));
+					} else {
+						label_cell.text(row_data.label);
+					}
+					row.append(label_cell);
 					row.append($('<td>').text(display_value(row_data.position)));
 					row.append($('<td>').text(display_value(row_data.laps_count)));
 					row.append($('<td>').text(display_value(row_data.total_time)));
 					row.append($('<td>').text(display_value(row_data.fastest_lap)));
+					row.append($('<td>').text(display_value(row_data.average_lap)));
 
 					for (var lap_i = 0; lap_i < heat_results.max_laps; lap_i++) {
 						var lap = row_data.laps[lap_i];

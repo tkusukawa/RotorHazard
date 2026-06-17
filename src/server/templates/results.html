@@ -254,6 +254,32 @@
 				return class_round_counts;
 			}
 
+			function open_panel(panel) {
+				var panel_id = panel.attr('id');
+				panel.addClass('open');
+				panel.children('.panel-content').show();
+				if (panel_id) {
+					rotorhazard.panelstates[panel_id] = true;
+				}
+			}
+
+			function open_hash_panel() {
+				if (!window.location.hash) {
+					return;
+				}
+
+				var panel = $(window.location.hash);
+				if (!panel.length || !panel.children().hasClass('panel-header')) {
+					return;
+				}
+
+				panel.parents('.panel.collapsing').each(function() {
+					open_panel($(this));
+				});
+				open_panel(panel);
+				panel[0].scrollIntoView();
+			}
+
 			function format_start_time_minute(start_time) {
 				if (!start_time) {
 					return '';
@@ -489,6 +515,7 @@
 						panel_obj.children('.panel-content').stop().slideUp();
 					}
 				}
+				open_hash_panel();
 			} else {
 				page.append('<p>' + __('There is no saved race data available to view.') + '</p>');
 			}
