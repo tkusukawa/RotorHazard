@@ -66,6 +66,12 @@ class LogMsgLevelCounters:
 
 msg_level_counters_obj = LogMsgLevelCounters()
 
+class EngineIODisconnectedFilter(logging.Filter):
+    def filter(self, record):
+        if record.name == "engineio.server" and "Session is disconnected" in record.getMessage():
+            return False
+        return True
+
 # Log handler that distributes log records to one or more destination handlers via a gevent queue.
 class QueuedLogEventHandler(logging.Handler):
 
@@ -196,6 +202,7 @@ def early_stage_setup():
         "Adafruit_I2C.Device.Bus"
     ]:
         logging.getLogger(name).setLevel(logging.WARN)
+    logging.getLogger("engineio.server").addFilter(EngineIODisconnectedFilter())
 
 def get_logging_level_value(lvl_name):
     try:

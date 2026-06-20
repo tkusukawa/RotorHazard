@@ -70,6 +70,7 @@ class Config:
         # other default configurations
         self.config['GENERAL']['HTTP_PORT'] = 5000
         self.config['GENERAL']['SECONDARIES'] = []
+        self.config['GENERAL']['CLUSTER_SECRET'] = ''
         self.config['GENERAL']['SECONDARY_TIMEOUT'] = 300  # seconds
         self.config['GENERAL']['DEBUG'] = False
         self.config['GENERAL']['CORS_ALLOWED_HOSTS'] = '*'
@@ -183,6 +184,7 @@ class Config:
             'GENERAL' : [
                 'HTTP_PORT',
                 'SECONDARIES',
+                'CLUSTER_SECRET',
                 'CORS_ALLOWED_HOSTS',
                 'FORCE_S32_BPILL_FLAG',
                 'SHUTDOWN_BUTTON_GPIOPIN',

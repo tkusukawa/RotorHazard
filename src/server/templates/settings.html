@@ -391,7 +391,28 @@
 		socket.on('cluster_status', function (msg) {
 			$('#cluster-status').empty();
 
+			if (msg.primaries && msg.primaries.length > 0) {
+				$('#cluster-status').append($('<h4>').text(__('Incoming Connections')));
+				var primary_body = $('<ul>');
+
+				for (i=0; i < msg.primaries.length; i++) {
+					var item = $('<li>');
+					var properties = $('<ul class="cluster tinytable">');
+
+					var property = $('<li>');
+					property.append('<div class="label">' + __('Address') + ' / ' + __('Type') + '</div>');
+					property.append('<div class="data">' + msg.primaries[i].address + ' / ' + msg.primaries[i].modeIndicator + '</div>');
+					properties.append(property);
+
+					item.append(properties);
+					primary_body.append(item);
+				}
+
+				$('#cluster-status').append(primary_body);
+			}
+
 			if (msg.secondaries && msg.secondaries.length > 0) {
+				$('#cluster-status').append($('<h4>').text(__('Secondary Timers')));
 				var cluster_body = $('<ul>');
 
 				for (i=0; i < msg.secondaries.length; i++) {
@@ -428,6 +449,10 @@
 				}
 
 				$('#cluster-status').append(cluster_body);
+			}
+
+			if ((!msg.primaries || msg.primaries.length <= 0) && (!msg.secondaries || msg.secondaries.length <= 0)) {
+				$('#cluster-status').append($('<p>').text(__('No cluster status available.')));
 			}
 		});
 
@@ -3252,6 +3277,14 @@
 		</div>
 
 		<h3>{{ __('Settings') }}</h3>
+		<ol class="form">
+			<li>
+				<div class="label-block">
+					<label for="set-cluster-secret">{{ __('Shared Secret') }}</label>
+				</div>
+				<input type="password" id="set-cluster-secret" class="set-config" data-section="GENERAL" data-key="CLUSTER_SECRET" value="{{ getConfig('GENERAL', 'CLUSTER_SECRET') }}" autocomplete="new-password">
+			</li>
+		</ol>
 		<div id="secondary-setup">
 			{{ __('Loading...') }}
 		</div>

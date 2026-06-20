@@ -566,6 +566,9 @@ class RHUI():
             self._socket.emit('option_update', emit_payload)
 
     def emit_config_update(self, settings, **params):
+        sensitive_config_items = {
+            'GENERAL': ['CLUSTER_SECRET']
+        }
         config_vals = {}
         for section, items in settings.items():
             if section == 'SENSORS':
@@ -575,7 +578,10 @@ class RHUI():
                     if section not in config_vals:
                         config_vals[section] = {}
 
-                    config_vals[section][item] = self._racecontext.serverconfig.get_item(section, item)
+                    if item in sensitive_config_items.get(section, []):
+                        config_vals[section][item] = ''
+                    else:
+                        config_vals[section][item] = self._racecontext.serverconfig.get_item(section, item)
 
         emit_payload = {
             'config': config_vals

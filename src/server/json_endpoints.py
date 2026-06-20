@@ -1,9 +1,11 @@
 # JSON API
 import dataclasses
+import hmac
 import json
 import Results
 from sqlalchemy.ext.declarative import DeclarativeMeta
 from flask.blueprints import Blueprint
+from flask import abort, request
 
 class AlchemyEncoder(json.JSONEncoder):
     def default(self, obj):  #pylint: disable=arguments-differ
@@ -31,6 +33,21 @@ class AlchemyEncoder(json.JSONEncoder):
 
 def createBlueprint(RaceContext, serverInfo):
     APP = Blueprint('json', __name__)
+
+    def get_api_secret():
+        cluster_secret = RaceContext.serverconfig.get_item('GENERAL', 'CLUSTER_SECRET')
+        return str(cluster_secret).strip() if cluster_secret else ''
+
+    @APP.before_request
+    def require_api_secret():
+        api_secret = get_api_secret()
+        if not api_secret:
+            abort(403)
+        provided_secret = request.headers.get('X-RotorHazard-Secret') or \
+                          request.headers.get('X-RH-Cluster-Secret') or \
+                          request.args.get('secret', '')
+        if not hmac.compare_digest(str(provided_secret), api_secret):
+            abort(403)
 
     @APP.route('/api/pilot/all')
     def api_pilot_all():

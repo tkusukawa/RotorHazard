@@ -57,6 +57,7 @@ import io
 import os
 import sys
 import base64
+import hmac
 import subprocess
 import unicodedata
 import importlib
@@ -232,6 +233,7 @@ Use_imdtabler_jar_flag = False  # set True if IMDTabler.jar is available
 Server_ipaddress_str = None
 ShutdownButtonInputHandler = None
 Server_secondary_mode = None
+Cluster_authorized_sids = set()
 HardwareHelpers = {}
 Auth_succeeded_flag = False
 
@@ -758,6 +760,16 @@ def start_background_threads_delayed():
 @catchLogExcWithDBWrapper
 def connect_handler(auth):
     '''Starts the interface and a heartbeat thread for rssi.'''
+    if isinstance(auth, dict) and auth.get('cluster'):
+        auth_error = get_cluster_auth_error(auth)
+        if auth_error:
+            logger.debug("Rejected cluster socket connection: {}".format(auth_error))
+            return False
+        try:
+            Cluster_authorized_sids.add(request.sid)
+        except Exception:
+            pass
+
     logger.debug('Client connected')
     if not RaceContext.serverstate.interface_started:
         start_background_threads()
@@ -774,13 +786,61 @@ def connect_handler(auth):
 @SOCKET_IO.on('disconnect')
 def disconnect_handler(*args):
     '''Emit disconnect event.'''
+    try:
+        RaceContext.cluster.clearPrimaryConnection(request.sid)
+        Cluster_authorized_sids.discard(request.sid)
+        RaceContext.rhui.emit_cluster_status()
+    except Exception:
+        pass
     logger.debug('Client disconnected')
-
 # Cluster events
+
+def get_cluster_secret():
+    cluster_secret = RaceContext.serverconfig.get_item('GENERAL', 'CLUSTER_SECRET')
+    return str(cluster_secret).strip() if cluster_secret else ''
+
+def check_cluster_secret(data):
+    return get_cluster_auth_error(data) is None
+
+def get_cluster_auth_error(data):
+    cluster_secret = get_cluster_secret()
+    provided_secret = ''
+    if isinstance(data, dict) and data.get('secret') is not None:
+        provided_secret = str(data.get('secret'))
+    if not cluster_secret:
+        return __('Shared secret is not configured')
+    if cluster_secret and not provided_secret:
+        return __('Shared secret required')
+    if cluster_secret and not hmac.compare_digest(provided_secret, cluster_secret):
+        return __('Shared secret rejected')
+    return None
+
+def authorize_cluster_request(data=None):
+    try:
+        sid = request.sid
+    except Exception:
+        sid = None
+    if sid in Cluster_authorized_sids:
+        return True
+    auth_error = get_cluster_auth_error(data)
+    if auth_error is None:
+        if sid:
+            Cluster_authorized_sids.add(sid)
+        return True
+    logger.debug("Rejected cluster request: {}".format(auth_error))
+    return False
+
+def get_request_source_ip():
+    forwarded_for = request.headers.get('X-Forwarded-For')
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip()
+    return request.remote_addr
 
 @SOCKET_IO.on('join_cluster')
 @catchLogExcWithDBWrapper
 def on_join_cluster(*args):
+    if not authorize_cluster_request():
+        return
     RaceContext.race.format = RaceContext.serverstate.secondary_race_format
     RaceContext.rhui.emit_current_laps()
     RaceContext.rhui.emit_race_status()
@@ -792,9 +852,12 @@ def on_join_cluster(*args):
 @SOCKET_IO.on('join_cluster_ex')
 @catchLogExcWithDBWrapper
 def on_join_cluster_ex(data=None):
+    if not authorize_cluster_request(data):
+        return
     global Server_secondary_mode
     prev_mode = Server_secondary_mode
     Server_secondary_mode = str(data.get('mode', SecondaryNode.SPLIT_MODE)) if data else None
+    RaceContext.cluster.setPrimaryConnection(request.sid, get_request_source_ip(), Server_secondary_mode)
     logger.info("Joined cluster" + ((" as '" + Server_secondary_mode + "' timer") \
                                     if Server_secondary_mode else ""))
     if Server_secondary_mode != SecondaryNode.MIRROR_MODE:  # mode is split timer
@@ -815,22 +878,26 @@ def on_join_cluster_ex(data=None):
         RaceContext.rhui.emit_race_status()
     Events.trigger(Evt.CLUSTER_JOIN, {
                 'message': __('Joined cluster')
-                })
-    RaceContext.cluster.emit_join_cluster_response(SOCKET_IO, RaceContext.serverstate.info_dict)
-
+    })
+    RaceContext.cluster.emit_join_cluster_response(SOCKET_IO, RaceContext.serverstate.info_dict, request.sid)
+    RaceContext.rhui.emit_cluster_status()
 @SOCKET_IO.on('check_secondary_query')
 @catchLogExceptionsWrapper
 def on_check_secondary_query(_data):
     ''' Check-query received from primary; return response. '''
+    if not authorize_cluster_request():
+        return
     payload = {
         'timestamp': RaceContext.serverstate.monotonic_to_epoch_millis(monotonic())
     }
-    SOCKET_IO.emit('check_secondary_response', payload)
+    emit('check_secondary_response', payload)
 
 @SOCKET_IO.on('cluster_event_trigger')
 @catchLogExcWithDBWrapper
 def on_cluster_event_trigger(data):
     ''' Received event trigger from primary. '''
+    if not authorize_cluster_request():
+        return
 
     evtName = data['evt_name']
     evtArgs = json.loads(data['evt_args']) if 'evt_args' in data else None
@@ -871,6 +938,8 @@ def on_cluster_event_trigger(data):
 @catchLogExceptionsWrapper
 def on_cluster_message_ack(data):
     ''' Received message acknowledgement from primary. '''
+    if not authorize_cluster_request():
+        return
     messageType = str(data.get('messageType')) if data else None
     messagePayload = data.get('messagePayload') if data else None
     RaceContext.cluster.emit_cluster_ack_to_primary(messageType, messagePayload)
@@ -3078,6 +3147,9 @@ def heartbeat_thread_function():
         except KeyboardInterrupt:
             logger.info("Heartbeat thread terminated by keyboard interrupt")
             raise
+        except gevent.GreenletExit:
+            logger.debug("Heartbeat thread terminated")
+            return
         except SystemExit:
             raise
         except Exception:

@@ -18,9 +18,10 @@ class SendAckQueue:
     SAQ_RETRY_INTERVAL_SECS = 3
     SAQ_RETRY_MAX_ATTEMPTS = 40  # retry for about two minutes max
 
-    def __init__(self, maxQueueSize, SOCKET_IO, logger):
+    def __init__(self, maxQueueSize, SOCKET_IO, logger, room=None):
         self.SOCKET_IO = SOCKET_IO
         self.logger = logger
+        self.room = room
         self.emitMessageQueue = gevent.queue.Queue(maxsize=maxQueueSize)
         self.anyAcksReceivedFlag = False
         self.ackNotifyEventObj = gevent.event.Event()
@@ -75,7 +76,10 @@ class SendAckQueue:
                 (messageType, messagePayload, waitForAckFlag) = self.emitMessageQueue.peek()
                 try:
                     self.ackNotifyEventObj.clear()
-                    self.SOCKET_IO.emit(messageType, messagePayload)
+                    if self.room:
+                        self.SOCKET_IO.emit(messageType, messagePayload, room=self.room)
+                    else:
+                        self.SOCKET_IO.emit(messageType, messagePayload)
                     if waitForAckFlag and self.anyAcksReceivedFlag:
                         if self.ackNotifyEventObj.wait(self.SAQ_RETRY_INTERVAL_SECS):
                             emitRetryCount = 0  # thread-notify received; move on to next message
