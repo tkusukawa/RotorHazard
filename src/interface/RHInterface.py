@@ -214,6 +214,9 @@ class RHInterface(BaseHardwareInterface):
             except KeyboardInterrupt:
                 logger.info("Update thread terminated by keyboard interrupt")
                 raise
+            except gevent.GreenletExit:
+                logger.debug("Update thread terminated")
+                return
             except SystemExit:
                 raise
             except Exception:

@@ -58,6 +58,7 @@ import os
 import sys
 import base64
 import hmac
+import tempfile
 import subprocess
 import unicodedata
 import importlib
@@ -760,11 +761,24 @@ def start_background_threads_delayed():
 @catchLogExcWithDBWrapper
 def connect_handler(auth):
     '''Starts the interface and a heartbeat thread for rssi.'''
+    cluster_connection_flag = False
     if isinstance(auth, dict) and auth.get('cluster'):
+        cluster_connection_flag = True
         auth_error = get_cluster_auth_error(auth)
         if auth_error:
-            logger.debug("Rejected cluster socket connection: {}".format(auth_error))
-            return False
+            logger.info("Rejected cluster socket connection: {}".format(auth_error))
+            sid = request.sid
+
+            @copy_current_request_context
+            def finish_cluster_reject():
+                try:
+                    SOCKET_IO.emit('cluster_auth_error', {'message': auth_error}, room=sid)
+                    SOCKET_IO.server.disconnect(sid, namespace='/')
+                except Exception:
+                    logger.debug("Error finishing rejected cluster socket connection", exc_info=True)
+
+            gevent.spawn_later(0.050, finish_cluster_reject)
+            return
         try:
             Cluster_authorized_sids.add(request.sid)
         except Exception:
@@ -772,8 +786,13 @@ def connect_handler(auth):
 
     logger.debug('Client connected')
     if not RaceContext.serverstate.interface_started:
-        start_background_threads()
+        if cluster_connection_flag:
+            start_background_threads_delayed()
+        else:
+            start_background_threads()
         RaceContext.serverstate.interface_started = True
+    if cluster_connection_flag:
+        return
     #
     @catchLogExcWithDBWrapper
     @copy_current_request_context
@@ -1683,6 +1702,47 @@ def download_database(db_file):
     }
 
     emit('database_bkp_done', emit_payload)
+
+@SOCKET_IO.on('mirror_database_restore')
+@catchLogExcWithDBWrapper
+def on_mirror_database_restore(data):
+    '''Restore database snapshot sent from primary timer in mirror mode.'''
+    if not authorize_cluster_request():
+        return
+    if Server_secondary_mode != SecondaryNode.MIRROR_MODE:
+        logger.warning("Ignoring mirror database restore request while not in mirror mode")
+        return
+    if type(data) is not dict or not data.get('file_data'):
+        logger.warning("Ignoring mirror database restore request with no file data")
+        return
+
+    tmp_path = None
+    try:
+        db_bytes = base64.decodebytes(data.get('file_data').encode())
+        tmp_file = tempfile.NamedTemporaryFile(prefix='rh_mirror_restore_', suffix='.db', delete=False)
+        tmp_path = tmp_file.name
+        with tmp_file:
+            tmp_file.write(db_bytes)
+
+        logger.info("Received mirror database snapshot from primary; restoring database")
+        recreate_success = recreate_database_files(False)
+        success = recreate_success and restore_database_file(tmp_path)
+        if success:
+            logger.info("Mirror database restore completed")
+            RaceContext.rhui.emit_frontend_load()
+            RaceContext.rhui.emit_cluster_status()
+        else:
+            logger.warning("Mirror database restore failed")
+        emit('mirror_database_restore_done', {'success': success})
+    except Exception:
+        logger.exception("Error restoring mirror database snapshot")
+        emit('mirror_database_restore_done', {'success': False})
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                logger.warning("Unable to delete temporary mirror database file: {}".format(tmp_path))
 
 @SOCKET_IO.on('list_backups')
 @catchLogExceptionsWrapper
@@ -2841,6 +2901,13 @@ def clean_results_cache(*args):
 def on_retry_secondary(data):
     '''Retry connection to secondary timer.'''
     RaceContext.cluster.retrySecondary(data['secondary_id'])
+    RaceContext.rhui.emit_cluster_status()
+
+@SOCKET_IO.on('disconnect_secondary')
+@catchLogExceptionsWrapper
+def on_disconnect_secondary(data):
+    '''Disconnect from secondary timer.'''
+    RaceContext.cluster.disconnectSecondary(data['secondary_id'])
     RaceContext.rhui.emit_cluster_status()
 
 @SOCKET_IO.on('get_pilotrace')

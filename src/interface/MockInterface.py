@@ -78,6 +78,8 @@ class MockInterface(BaseHardwareInterface):
             while True:
                 self.update()
                 gevent.sleep(UPDATE_SLEEP)
+        except gevent.GreenletExit:
+            return
         except KeyboardInterrupt:
             logger.info("Update thread terminated by keyboard interrupt")
 

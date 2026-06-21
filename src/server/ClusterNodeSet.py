@@ -4,6 +4,8 @@ import logging
 import copy
 import gevent
 import json
+import base64
+import os
 import socketio
 from time import monotonic
 from dataclasses import asdict
@@ -33,6 +35,7 @@ class SecondaryNode:
     LATENCY_AVG_SIZE = 30
     TIMEDIFF_MEDIAN_SIZE = 30
     TIMEDIFF_WARNING_THRESH_MS = 250  # log warning if secondary clock more off than this
+    AUTH_RESPONSE_TIMEOUT_SECS = 15
 
     def __init__(self, idVal, info, RaceContext, monotonic_to_epoch_millis, server_release_version, prev_sec_obj=None):
         self.id = idVal
@@ -130,17 +133,24 @@ class SecondaryNode:
         self.parentNodeSet = None
         self.actionPassTimes = {}
         self.prevSecPassTStamps = {}
-        self.sio = socketio.Client(reconnection=False, request_timeout=1)
+        self.sio = socketio.Client(reconnection=False, request_timeout=3)
         self.sio.on('connect', self.on_connect)
         self.sio.on('connect_error', self.on_connect_error)
         self.sio.on('disconnect', self.on_disconnect)
         self.sio.on('pass_record', self.on_pass_record)
         self.sio.on('check_secondary_response', self.on_check_secondary_response)
         self.sio.on('join_cluster_response', self.join_cluster_response)
-        self.start_connection()
+        self.sio.on('mirror_database_restore_done', self.on_mirror_database_restore_done)
+        self.sio.on('cluster_auth_error', self.on_cluster_auth_error)
 
     def start_connection(self):
         logger.debug("Starting connection for secondary timer {}".format(self.id+1))
+        if self.sio.connected:
+            logger.debug("Disconnecting existing socket before reconnecting secondary timer {}".format(self.id+1))
+            self.do_sio_disconnect()
+            if self.wait_for_sio_disconnect(1.0):
+                logger.warning("Secondary {0} at {1} did not disconnect before reconnect attempt".\
+                               format(self.id+1, self.address))
         self.startConnectTime = 0
         self.authRequestTime = 0
         self.authenticatedFlag = False
@@ -175,12 +185,12 @@ class SecondaryNode:
                     oldSecsSinceDis = self.secsSinceDisconnect
                     self.secsSinceDisconnect = monotonic() - self.startConnectTime
                     if self.sio.connected and not self.authenticatedFlag:
-                        if self.authRequestTime > 0 and monotonic() > self.authRequestTime + 3.9:
+                        if self.authRequestTime > 0 and monotonic() > self.authRequestTime + self.AUTH_RESPONSE_TIMEOUT_SECS:
                             self.authFailureMessage = self._racecontext.language.__("Shared secret rejected, not configured, or no authorization response")
                             logger.warning("Secondary {0} at {1} did not authorize cluster connection; check shared secret".\
                                            format(self.id+1, self.address))
                             self.runningFlag = False
-                            gevent.spawn(self.do_sio_disconnect)
+                            self.do_sio_disconnect()
                             if self._racecontext.rhui:
                                 self._racecontext.rhui.emit_cluster_status()
                             return
@@ -200,11 +210,10 @@ class SecondaryNode:
                                 cluster_secret = self._racecontext.serverconfig.get_item('GENERAL', 'CLUSTER_SECRET')
                                 if cluster_secret:
                                     connect_auth['secret'] = cluster_secret
-                                self.sio.connect(self.address, auth=connect_auth)
+                                self.sio.connect(self.address, auth=connect_auth, transports=['polling'])
                             except socketio.exceptions.ConnectionError as ex:
                                 err_text = str(ex).lower()
-                                if (not self.authFailureMessage) and \
-                                        ("namespace" in err_text or "rejected" in err_text):
+                                if (not self.authFailureMessage) and self.is_cluster_auth_error_text(err_text):
                                     if cluster_secret:
                                         self.authFailureMessage = self._racecontext.language.__("Shared secret rejected or not configured on secondary")
                                     else:
@@ -375,12 +384,45 @@ class SecondaryNode:
                 msg = data
             if not msg:
                 msg = "Cluster connection rejected"
-            self.authFailureMessage = msg
-            logger.warning("Secondary {0} at {1} rejected cluster socket connection: {2}".\
-                           format(self.id+1, self.address, msg))
+            if self.is_cluster_auth_error_text(msg):
+                self.authFailureMessage = msg
+                logger.warning("Secondary {0} at {1} rejected cluster socket connection: {2}".\
+                               format(self.id+1, self.address, msg))
+            else:
+                logger.info("Secondary {0} at {1} cluster socket connection failed: {2}".\
+                            format(self.id+1, self.address, msg))
         except Exception:
             logger.exception("Error handling Cluster 'connect_error' for secondary {0} at {1}".\
                              format(self.id+1, self.address))
+
+    def on_cluster_auth_error(self, data):
+        try:
+            msg = None
+            if isinstance(data, dict):
+                msg = data.get('message')
+            elif isinstance(data, str):
+                msg = data
+            if not msg:
+                msg = self._racecontext.language.__("Shared secret rejected, not configured, or no authorization response")
+            self.authFailureMessage = msg
+            self.runningFlag = False
+            logger.warning("Unable to authorize secondary {0} at {1}: {2}".\
+                           format(self.id+1, self.address, msg))
+            self.do_sio_disconnect()
+            if self._racecontext.rhui:
+                self._racecontext.rhui.emit_cluster_status()
+        except Exception:
+            logger.exception("Error handling Cluster 'cluster_auth_error' for secondary {0} at {1}".\
+                             format(self.id+1, self.address))
+
+    def is_cluster_auth_error_text(self, text):
+        err_text = str(text).lower()
+        if "websocket upgrade failed" in err_text or "unexpected status code 400" in err_text:
+            return False
+        return ("shared secret" in err_text or
+                "authorization" in err_text or
+                "authorize" in err_text or
+                "auth" in err_text)
 
     def on_disconnect(self):
         try:
@@ -713,6 +755,8 @@ class SecondaryNode:
                 else:
                     logger.warning("Unable to parse 'release_version' from secondary {0} at {1}".\
                                 format(self.id+1, self.address))
+            if self.isMirrorMode and newPrgStrtEpch:
+                gevent.spawn(self.send_mirror_database_snapshot)
         except Exception:
             logger.exception("Error processing join-cluster response from secondary {0} at {1}".\
                              format(self.id+1, self.address))
@@ -723,6 +767,45 @@ class SecondaryNode:
             self.sio.emit('cluster_message_ack', payload)
         except Exception:
             logger.exception("Error sending join-cluster message acknowledgement to secondary {0} at {1}".\
+                             format(self.id+1, self.address))
+
+    def send_mirror_database_snapshot(self):
+        snapshot_path = None
+        try:
+            snapshot_path = self._racecontext.rhdata.make_db_snapshot_file()
+            if not snapshot_path:
+                logger.warning("Unable to create database snapshot for mirror secondary {0} at {1}".\
+                               format(self.id+1, self.address))
+                return
+
+            with open(snapshot_path, mode='rb') as file_obj:
+                file_content = base64.encodebytes(file_obj.read()).decode()
+
+            payload = {
+                'file_name': os.path.basename(snapshot_path),
+                'file_data': file_content
+            }
+            logger.info("Sending database snapshot to mirror secondary {0} at {1}".format(self.id+1, self.address))
+            self.sio.emit('mirror_database_restore', payload)
+        except Exception:
+            logger.exception("Error sending database snapshot to mirror secondary {0} at {1}".\
+                             format(self.id+1, self.address))
+        finally:
+            if snapshot_path:
+                try:
+                    os.remove(snapshot_path)
+                except Exception:
+                    logger.warning("Unable to delete temporary database snapshot: {}".format(snapshot_path))
+
+    def on_mirror_database_restore_done(self, data):
+        try:
+            if data and data.get('success'):
+                logger.info("Mirror secondary {0} at {1} restored database snapshot".format(self.id+1, self.address))
+            else:
+                logger.warning("Mirror secondary {0} at {1} failed to restore database snapshot".\
+                               format(self.id+1, self.address))
+        except Exception:
+            logger.exception("Error processing mirror database restore response from secondary {0} at {1}".\
                              format(self.id+1, self.address))
 
 
@@ -846,13 +929,32 @@ class ClusterNodeSet:
         secondary = self.getSecondaryForIdVal(secondary_id)
         if (secondary):
             if not secondary.runningFlag:
-                logger.info("Retrying connection to secondary {} at {}".format(secondary.id+1, secondary.address))
+                logger.info("Connecting to secondary {} at {}".format(secondary.id+1, secondary.address))
                 secondary.start_connection()
             else:
-                logger.error("Attempted retry of running secondary {} at {} in ClusterNodeSet 'retrySecondary()'".\
+                logger.error("Attempted connection to running secondary {} at {} in ClusterNodeSet 'retrySecondary()'".\
                              format(secondary_id+1, secondary.address))
         else:
             logger.error("Secondary ID value ({}) out of bounds in ClusterNodeSet 'retrySecondary()'".\
+                         format(secondary_id+1))
+
+    def disconnectSecondary(self, secondary_id):
+        secondary = self.getSecondaryForIdVal(secondary_id)
+        if (secondary):
+            logger.info("Disconnecting from secondary {} at {}".format(secondary.id+1, secondary.address))
+            secondary.runningFlag = False
+            if secondary.sio.connected:
+                secondary.do_sio_disconnect()
+                if secondary.wait_for_sio_disconnect(1.0):
+                    logger.warning("Timed out waiting for secondary {} at {} to disconnect".\
+                                   format(secondary.id+1, secondary.address))
+            elif secondary.lastContactTime > 0:
+                secondary.on_disconnect()
+            secondary.authenticatedFlag = False
+            secondary.lastContactTime = -1
+            secondary.authFailureMessage = None
+        else:
+            logger.error("Secondary ID value ({}) out of bounds in ClusterNodeSet 'disconnectSecondary()'".\
                          format(secondary_id+1))
 
     def emit(self, event, data = None):
@@ -881,16 +983,23 @@ class ClusterNodeSet:
                 lastContactStr = str(int(nowTime-secondary.lastContactTime)) + "s"
             else:
                 if secondary.authFailureMessage:
-                    lastContactStr = secondary.authFailureMessage + " - <button class=\"retry_secondary\" data-secondary_id=\"" + \
-                            str(secondary.id) + "\">" + self.__("click to retry") + "</button>"
+                    lastContactStr = secondary.authFailureMessage
                 elif secondary.numDisconnects > 0:
                     lastContactStr = self.__("connection lost")
                 else:
                     if secondary.runningFlag:
-                        lastContactStr = self.__("never connected")
+                        lastContactStr = self.__("connecting")
                     else:
-                        lastContactStr = "<button class=\"retry_secondary\" data-secondary_id=\"" + \
-                                str(secondary.id) + "\">" + self.__("Not found - click to retry") + "</button>"
+                        lastContactStr = self.__("not connected")
+            if secondary.lastContactTime >= 0 and secondary.authenticatedFlag:
+                controlStr = "<button class=\"disconnect_secondary\" data-secondary_id=\"" + \
+                        str(secondary.id) + "\">" + self.__("Disconnect") + "</button>"
+            elif secondary.runningFlag:
+                controlStr = "<button class=\"disconnect_secondary\" data-secondary_id=\"" + \
+                        str(secondary.id) + "\">" + self.__("Cancel Connection") + "</button>"
+            else:
+                controlStr = "<button class=\"retry_secondary\" data-secondary_id=\"" + \
+                        str(secondary.id) + "\">" + self.__("Connect") + "</button>"
             payload.append(
                 {'address': secondary.address, \
                  'modeIndicator': ((self.__('Mirror') if secondary.isMirrorMode else self.__('Split')) if not secondary.isActionMode else self.__('Action')), \
@@ -905,7 +1014,8 @@ class ClusterNodeSet:
                  'downTimeSecs': downTimeSecs, \
                  'availability': round((100.0*totalUpSecs/(totalUpSecs+totalDownSecs) \
                                        if totalUpSecs+totalDownSecs > 0 else 0), 1), \
-                 'last_contact': lastContactStr
+                 'last_contact': lastContactStr, \
+                 'control': controlStr
                  })
         return {
             'secondaries': payload,

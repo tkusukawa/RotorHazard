@@ -13,6 +13,7 @@ from datetime import datetime
 import os
 import traceback
 import shutil
+import tempfile
 import json
 import glob
 import numbers
@@ -237,6 +238,29 @@ class RHData():
             logger.exception('Error backing up database file')
             return None
         return bkp_name
+
+    def make_db_snapshot_file(self, prefix_str='rh_mirror_'):
+        self.close()
+        self.clean()
+
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self._DB_FILE_NAME)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+            logger.debug('Checkpointed WAL before database snapshot')
+        except Exception as ex:
+            logger.warning('Failed to checkpoint WAL before database snapshot: ' + str(ex))
+
+        try:
+            tmp_file = tempfile.NamedTemporaryFile(prefix=prefix_str, suffix='.db', delete=False)
+            tmp_file.close()
+            shutil.copy2(self._DB_FILE_NAME, tmp_file.name)
+            logger.info('Created database snapshot file: {}'.format(tmp_file.name))
+            return tmp_file.name
+        except Exception:
+            logger.exception('Error creating database snapshot file')
+            return None
 
     def delete_old_db_autoBkp_files(self, num_keep_val, prefix_str, DB_AUTOBKP_NUM_KEEP_STR):
         num_del = 0

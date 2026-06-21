@@ -69,7 +69,8 @@ msg_level_counters_obj = LogMsgLevelCounters()
 class EngineIODisconnectedFilter(logging.Filter):
     def filter(self, record):
         if record.name == "engineio.server" and "Session is disconnected" in record.getMessage():
-            return False
+            record.levelno = logging.INFO
+            record.levelname = logging.getLevelName(logging.INFO)
         return True
 
 # Log handler that distributes log records to one or more destination handlers via a gevent queue.
