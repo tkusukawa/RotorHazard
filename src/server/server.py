@@ -2910,6 +2910,13 @@ def on_disconnect_secondary(data):
     RaceContext.cluster.disconnectSecondary(data['secondary_id'])
     RaceContext.rhui.emit_cluster_status()
 
+@SOCKET_IO.on('sync_secondary')
+@catchLogExceptionsWrapper
+def on_sync_secondary(data):
+    '''Synchronize database to mirror secondary timer.'''
+    RaceContext.cluster.syncSecondaryDatabase(data['secondary_id'])
+    RaceContext.rhui.emit_cluster_status()
+
 @SOCKET_IO.on('get_pilotrace')
 @catchLogExcWithDBWrapper
 def get_pilotrace(data):

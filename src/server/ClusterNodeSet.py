@@ -129,6 +129,7 @@ class SecondaryNode:
         self.timeDiffMedianMs = 0
         self.authFailureMessage = None
         self.progStartEpoch = 0
+        self.mirrorDatabaseSyncInProgress = False
         self.runningFlag = False
         self.parentNodeSet = None
         self.actionPassTimes = {}
@@ -755,8 +756,6 @@ class SecondaryNode:
                 else:
                     logger.warning("Unable to parse 'release_version' from secondary {0} at {1}".\
                                 format(self.id+1, self.address))
-            if self.isMirrorMode and newPrgStrtEpch:
-                gevent.spawn(self.send_mirror_database_snapshot)
         except Exception:
             logger.exception("Error processing join-cluster response from secondary {0} at {1}".\
                              format(self.id+1, self.address))
@@ -772,10 +771,29 @@ class SecondaryNode:
     def send_mirror_database_snapshot(self):
         snapshot_path = None
         try:
+            if not self.isMirrorMode:
+                logger.warning("Ignoring database sync request for non-mirror secondary {0} at {1}".\
+                               format(self.id+1, self.address))
+                return
+            if self.lastContactTime <= 0 or not self.authenticatedFlag:
+                logger.warning("Ignoring database sync request for disconnected mirror secondary {0} at {1}".\
+                               format(self.id+1, self.address))
+                return
+            if self.mirrorDatabaseSyncInProgress:
+                logger.info("Database sync already in progress for mirror secondary {0} at {1}".\
+                            format(self.id+1, self.address))
+                return
+            self.mirrorDatabaseSyncInProgress = True
+            if self._racecontext.rhui:
+                self._racecontext.rhui.emit_cluster_status()
+
             snapshot_path = self._racecontext.rhdata.make_db_snapshot_file()
             if not snapshot_path:
                 logger.warning("Unable to create database snapshot for mirror secondary {0} at {1}".\
                                format(self.id+1, self.address))
+                self.mirrorDatabaseSyncInProgress = False
+                if self._racecontext.rhui:
+                    self._racecontext.rhui.emit_cluster_status()
                 return
 
             with open(snapshot_path, mode='rb') as file_obj:
@@ -788,8 +806,11 @@ class SecondaryNode:
             logger.info("Sending database snapshot to mirror secondary {0} at {1}".format(self.id+1, self.address))
             self.sio.emit('mirror_database_restore', payload)
         except Exception:
+            self.mirrorDatabaseSyncInProgress = False
             logger.exception("Error sending database snapshot to mirror secondary {0} at {1}".\
                              format(self.id+1, self.address))
+            if self._racecontext.rhui:
+                self._racecontext.rhui.emit_cluster_status()
         finally:
             if snapshot_path:
                 try:
@@ -799,11 +820,14 @@ class SecondaryNode:
 
     def on_mirror_database_restore_done(self, data):
         try:
+            self.mirrorDatabaseSyncInProgress = False
             if data and data.get('success'):
                 logger.info("Mirror secondary {0} at {1} restored database snapshot".format(self.id+1, self.address))
             else:
                 logger.warning("Mirror secondary {0} at {1} failed to restore database snapshot".\
                                format(self.id+1, self.address))
+            if self._racecontext.rhui:
+                self._racecontext.rhui.emit_cluster_status()
         except Exception:
             logger.exception("Error processing mirror database restore response from secondary {0} at {1}".\
                              format(self.id+1, self.address))
@@ -953,8 +977,17 @@ class ClusterNodeSet:
             secondary.authenticatedFlag = False
             secondary.lastContactTime = -1
             secondary.authFailureMessage = None
+            secondary.mirrorDatabaseSyncInProgress = False
         else:
             logger.error("Secondary ID value ({}) out of bounds in ClusterNodeSet 'disconnectSecondary()'".\
+                         format(secondary_id+1))
+
+    def syncSecondaryDatabase(self, secondary_id):
+        secondary = self.getSecondaryForIdVal(secondary_id)
+        if (secondary):
+            gevent.spawn(secondary.send_mirror_database_snapshot)
+        else:
+            logger.error("Secondary ID value ({}) out of bounds in ClusterNodeSet 'syncSecondaryDatabase()'".\
                          format(secondary_id+1))
 
     def emit(self, event, data = None):
@@ -992,8 +1025,16 @@ class ClusterNodeSet:
                     else:
                         lastContactStr = self.__("not connected")
             if secondary.lastContactTime >= 0 and secondary.authenticatedFlag:
-                controlStr = "<button class=\"disconnect_secondary\" data-secondary_id=\"" + \
-                        str(secondary.id) + "\">" + self.__("Disconnect") + "</button>"
+                controlButtons = []
+                if secondary.isMirrorMode:
+                    if secondary.mirrorDatabaseSyncInProgress:
+                        controlButtons.append("<button disabled=\"disabled\">" + self.__("Syncing DB") + "</button>")
+                    else:
+                        controlButtons.append("<button class=\"sync_secondary\" data-secondary_id=\"" + \
+                                str(secondary.id) + "\">" + self.__("Sync DB") + "</button>")
+                controlButtons.append("<button class=\"disconnect_secondary\" data-secondary_id=\"" + \
+                        str(secondary.id) + "\">" + self.__("Disconnect") + "</button>")
+                controlStr = " ".join(controlButtons)
             elif secondary.runningFlag:
                 controlStr = "<button class=\"disconnect_secondary\" data-secondary_id=\"" + \
                         str(secondary.id) + "\">" + self.__("Cancel Connection") + "</button>"
