@@ -121,8 +121,8 @@
 				return class_label + ' / R' + round.id + ' / ' + heat.displayname;
 			}
 
-			function build_results_heat_panel_id(class_index, round, heat_index) {
-				return 'class_' + class_index + '_round_' + round.id + '_heat_' + heat_index;
+			function build_results_heat_panel_id(class_id, round, heat) {
+				return 'class_' + class_id + '_round_' + round.id + '_heat_' + heat.heat_id;
 			}
 
 			function build_heat_result_rows(msg) {
@@ -176,7 +176,7 @@
 							max_laps = Math.max(max_laps, laps.length);
 							rows.push({
 								label: build_heat_label(class_label, round, heat, class_round_count),
-								target_id: build_results_heat_panel_id(class_index, round, heat_i),
+								target_id: build_results_heat_panel_id(class_id, round, heat),
 								position: result.position,
 								laps_count: result.laps,
 								total_time: result.total_time,

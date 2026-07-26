@@ -487,6 +487,7 @@ def _do_calc_leaderboard(racecontext, **params):
             # Set lap source info
             source = {
                 'round': round_num,
+                'round_id': getattr(raceObj, 'round_id', round_num),
                 'heat': current_heat_id,
                 'displayname': heat_displayname,
             }

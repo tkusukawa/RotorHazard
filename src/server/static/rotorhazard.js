@@ -1810,6 +1810,29 @@ function format_leaderboard_source(source, meta) {
 	return parts.length ? parts.join(' / ') : 'None';
 }
 
+function build_results_heat_panel_id(source) {
+	if (!source || source.heat == null || (source.round_id == null && source.round == null)) {
+		return null;
+	}
+
+	var round_id = source.round_id != null ? source.round_id : source.round;
+	return 'class_' + (source.class || 0) + '_round_' + round_id + '_heat_' + source.heat;
+}
+
+function build_leaderboard_source_cell(source, meta) {
+	var source_text = format_leaderboard_source(source, meta);
+	var cell = $('<td class="source">');
+	var target_id = build_results_heat_panel_id(source);
+
+	if (target_id && meta && meta.source_display_context == 'results') {
+		cell.append($('<a>').attr('href', '/results#' + target_id).text(source_text));
+	} else {
+		cell.text(source_text);
+	}
+
+	return cell;
+}
+
 function build_leaderboard_pilot_cell(result, meta) {
 	var pilot_cell = $('<td class="pilot">');
 	var callsign = result.callsign;
@@ -1954,7 +1977,7 @@ function build_leaderboard(leaderboard, display_type, meta, display_starts=false
 			row.append(el);
 
 			if (display_type == 'by_fastest_lap') {
-				row.append('<td class="source">'+ source_text +'</td>');
+				row.append(build_leaderboard_source_cell(leaderboard[i].fastest_lap_source, meta));
 			}
 		}
 		if (display_type == 'by_consecutives' ||
@@ -1980,7 +2003,7 @@ function build_leaderboard(leaderboard, display_type, meta, display_starts=false
 			row.append(el);
 
 			if (display_type == 'by_consecutives') {
-				row.append('<td class="source">'+ source_text +'</td>');
+				row.append(build_leaderboard_source_cell(leaderboard[i].consecutives_source, meta));
 			}
 		}
 

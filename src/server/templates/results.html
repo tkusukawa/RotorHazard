@@ -280,6 +280,11 @@
 				panel[0].scrollIntoView();
 			}
 
+			$(window).off('hashchange.results').on('hashchange.results', open_hash_panel);
+			$(document).off('click.resultsSourceLink', 'a[href^="/results#"]').on('click.resultsSourceLink', 'a[href^="/results#"]', function() {
+				setTimeout(open_hash_panel, 0);
+			});
+
 			function format_start_time_minute(start_time) {
 				if (!start_time) {
 					return '';
@@ -294,6 +299,10 @@
 				}
 
 				return class_label + ' / R' + round.id + ' / ' + heat.displayname;
+			}
+
+			function build_results_heat_panel_id(class_id, round, heat) {
+				return 'class_' + class_id + '_round_' + round.id + '_heat_' + heat.heat_id;
 			}
 
 			var defaultMeta = new Object;
@@ -440,7 +449,7 @@
 
 							for (var heat_summary_i in heat_summaries) {
 								var heat_summary = heat_summaries[heat_summary_i];
-								var heat_panel_id = 'class_' + class_id + '_heat_' + heat_summary.heat_index;
+								var heat_panel_id = 'class_' + race_class + '_heat_' + heat_summary.heat.heat_id;
 								var heat_panel = $('<div id="' + heat_panel_id + '" class="panel collapsing">');
 								var heat_panel_header = $('<div class="panel-header">');
 								heat_panel_header.append('<h4><button class="no-style">' + heat_summary.heat.displayname + '</button></h4>');
@@ -464,7 +473,7 @@
 								var heat_round = rounds_by_id[round_id][round_heat_i];
 								var heat = heat_round.heat;
 								var round = heat_round.round;
-								var heat_panel_id = 'class_' + class_id + '_round_' + round_id + '_heat_' + heat_round.heat_index;
+								var heat_panel_id = build_results_heat_panel_id(race_class, round, heat);
 								var heat_panel = $('<div id="' + heat_panel_id + '" class="panel collapsing">');
 								var heat_panel_header = $('<div class="panel-header">');
 
